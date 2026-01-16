@@ -27,6 +27,7 @@ class FileListWidget(QWidget):
     
     file_selected = pyqtSignal(str)  # 파일 선택 시그널 (file_path)
     search_requested = pyqtSignal(str)  # 검색 요청 시그널 (query)
+    clear_requested = pyqtSignal()  # 초기화 요청 시그널
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -135,7 +136,68 @@ class FileListWidget(QWidget):
                 border-radius: 3px;
             }
         """)
-        layout.addWidget(self.folder_only_checkbox)
+        
+        # 검색 범위 옵션 레이아웃
+        scope_layout = QHBoxLayout()
+        scope_layout.setSpacing(10)
+        
+        from PyQt6.QtWidgets import QCheckBox
+        
+        # 전체 폴더 검색 (기본 체크)
+        self.search_all_checkbox = QCheckBox("전체 폴더에서 검색")
+        self.search_all_checkbox.setChecked(True)
+        self.search_all_checkbox.toggled.connect(self._on_search_all_toggled)
+        self.search_all_checkbox.setStyleSheet("""
+            QCheckBox {
+                color: #888888;
+                font-size: 12px;
+                padding: 2px 5px;
+            }
+            QCheckBox::indicator {
+                width: 14px;
+                height: 14px;
+            }
+            QCheckBox::indicator:unchecked {
+                border: 1px solid #555555;
+                background: #2d2d2d;
+                border-radius: 3px;
+            }
+            QCheckBox::indicator:checked {
+                border: 1px solid #007acc;
+                background: #007acc;
+                border-radius: 3px;
+            }
+        """)
+        scope_layout.addWidget(self.search_all_checkbox)
+        
+        # 현재 폴더에서만 검색
+        self.folder_only_checkbox = QCheckBox("현재 폴더에서만 검색")
+        self.folder_only_checkbox.toggled.connect(self._on_folder_only_toggled)
+        self.folder_only_checkbox.setStyleSheet("""
+            QCheckBox {
+                color: #888888;
+                font-size: 12px;
+                padding: 2px 5px;
+            }
+            QCheckBox::indicator {
+                width: 14px;
+                height: 14px;
+            }
+            QCheckBox::indicator:unchecked {
+                border: 1px solid #555555;
+                background: #2d2d2d;
+                border-radius: 3px;
+            }
+            QCheckBox::indicator:checked {
+                border: 1px solid #007acc;
+                background: #007acc;
+                border-radius: 3px;
+            }
+        """)
+        scope_layout.addWidget(self.folder_only_checkbox)
+        scope_layout.addStretch()
+        
+        layout.addLayout(scope_layout)
         
         # 정렬 옵션 (가나다순 / 날짜순)
         sort_layout = QHBoxLayout()
@@ -239,6 +301,17 @@ class FileListWidget(QWidget):
         self.search_input.clear()
         self._search_results = []
         self._display_files(self._current_files)
+        self.clear_requested.emit()  # 텍스트 뷰어도 초기화
+    
+    def _on_search_all_toggled(self, checked: bool):
+        """전체 폴더 검색 토글"""
+        if checked:
+            self.folder_only_checkbox.setChecked(False)
+    
+    def _on_folder_only_toggled(self, checked: bool):
+        """현재 폴더만 검색 토글"""
+        if checked:
+            self.search_all_checkbox.setChecked(False)
     
     def _on_sort_changed(self, sort_type: str):
         """정렬 기준 변경"""

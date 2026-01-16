@@ -201,6 +201,12 @@ class MainWindow(QMainWindow):
         # 파일 목록 시그널
         self.file_list.file_selected.connect(self._on_file_selected)
         self.file_list.search_requested.connect(self._on_search_requested)
+        self.file_list.clear_requested.connect(self._on_clear_requested)
+    
+    def _on_clear_requested(self):
+        """검색 초기화 시 텍스트 뷰어도 초기화"""
+        self.text_viewer.clear()
+        self.status_bar.showMessage("검색 초기화됨")
     
     def _load_saved_folders(self):
         """저장된 폴더 목록 로드"""
@@ -420,7 +426,7 @@ class MainWindow(QMainWindow):
         """정보 다이얼로그"""
         QMessageBox.about(
             self, "HWP Instant Viewer",
-            "HWP Instant Viewer v1.4\n\n"
+            "HWP Instant Viewer v1.5\n\n"
             "HWP 파일을 빠르게 탐색하고 검색하는 도구\n\n"
             "기능:\n"
             "• 폴더 트리 탐색\n"

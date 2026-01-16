@@ -106,6 +106,16 @@ class TextViewerWidget(QWidget):
         
         layout.addWidget(self.text_browser)
     
+    def clear(self):
+        """뷰어 초기화"""
+        self._current_file = ""
+        self._current_html = ""
+        self._current_query = ""
+        self._images = []
+        self.file_label.setText("📄 파일 없음")
+        self.match_count_label.setText("")
+        self.text_browser.setHtml("")
+    
     def set_content(self, file_path: str, html_content: str, images: list, query: str = ""):
         """
         HTML 콘텐츠 설정 및 표시

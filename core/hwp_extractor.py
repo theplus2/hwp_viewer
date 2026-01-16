@@ -225,12 +225,54 @@ def extract_text_from_docx(file_path: str) -> str:
 
 
 def extract_html_from_docx(file_path: str) -> Tuple[str, List[Dict]]:
-    """DOCX 파일에서 HTML 콘텐츠 추출"""
+    """DOCX 파일에서 HTML 콘텐츠 및 이미지 추출"""
+    import zipfile
+    import base64
+    
     html_parts = []
+    images = []
+    MAX_IMAGE_SIZE = 500 * 1024  # 500KB 제한
+    MAX_IMAGES = 10  # 최대 10개 이미지
     
     try:
         from docx import Document
         doc = Document(file_path)
+        
+        # 이미지 추출 (DOCX는 ZIP 파일)
+        try:
+            with zipfile.ZipFile(file_path, 'r') as zf:
+                for name in zf.namelist():
+                    if len(images) >= MAX_IMAGES:
+                        break
+                    if name.startswith('word/media/'):
+                        try:
+                            img_data = zf.read(name)
+                            # 크기 제한 확인
+                            if len(img_data) > MAX_IMAGE_SIZE:
+                                continue
+                            
+                            img_name = os.path.basename(name)
+                            ext = os.path.splitext(img_name)[1].lower()
+                            
+                            # MIME 타입 결정
+                            mime_types = {
+                                '.png': 'image/png',
+                                '.jpg': 'image/jpeg',
+                                '.jpeg': 'image/jpeg',
+                                '.gif': 'image/gif',
+                                '.bmp': 'image/bmp'
+                            }
+                            mime = mime_types.get(ext, 'image/png')
+                            
+                            images.append({
+                                'name': img_name,
+                                'data': base64.b64encode(img_data).decode('utf-8'),
+                                'mime': mime
+                            })
+                        except Exception:
+                            continue
+        except Exception:
+            pass  # 이미지 추출 실패 시 텍스트만 표시
         
         # 문단 추출
         for para in doc.paragraphs:
@@ -238,6 +280,10 @@ def extract_html_from_docx(file_path: str) -> Tuple[str, List[Dict]]:
             if text:
                 escaped = html_lib.escape(text)
                 html_parts.append(f"<p>{escaped}</p>")
+        
+        # 이미지 삽입 (크기 제한된 이미지만)
+        for img in images:
+            html_parts.append(f'<img src="data:{img["mime"]};base64,{img["data"]}" style="max-width: 100%; max-height: 400px; margin: 10px 0;" alt="{img["name"]}">')
         
         # 표 추출
         for table in doc.tables:
