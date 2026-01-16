@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+
+# Distribution
+build/
+dist/
+*.egg-info/
+
+# Local files
+*.log
+*.db
+*.sqlite
+
+# Test/Debug files
+debug_output.html
+verify_*.py
+test_*.py
+reproduce_*.py

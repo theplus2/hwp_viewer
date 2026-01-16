@@ -1,0 +1,4 @@
+PyQt6>=6.4.0
+pyhwp>=0.1b12
+olefile>=0.46
+pyinstaller>=6.0.0
