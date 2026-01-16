@@ -117,10 +117,9 @@ class FolderTreeWidget(QWidget):
         
         layout.addWidget(self.tree_widget, 1)  # stretch factor 1
         
-        # 안내 레이블 (고정 높이)
+        # 안내 레이블 (폴더 없을 때 표시, 전체 공간 채움)
         self.empty_label = QLabel("📂 폴더를 추가하세요")
         self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.empty_label.setFixedHeight(80)
         self.empty_label.setStyleSheet("""
             QLabel {
                 color: #888888;
@@ -131,10 +130,9 @@ class FolderTreeWidget(QWidget):
                 border-radius: 4px;
             }
         """)
-        layout.addWidget(self.empty_label)
+        layout.addWidget(self.empty_label, 1)  # stretch factor 1로 전체 공간 채움
         
-        # 빈 공간 채우기 위한 stretch
-        layout.addStretch(1)
+        # 트리 위젯이 남은 공간을 모두 차지하도록 stretch는 제거
         
         self._update_empty_state()
     
@@ -166,6 +164,10 @@ class FolderTreeWidget(QWidget):
     def _add_folder_to_tree(self, folder_path: str):
         """트리에 폴더 추가 (하위 폴더 포함)"""
         folder_name = os.path.basename(folder_path)
+        # 드라이브 루트(C:\, D:\)인 경우 basename이 빈 문자열이므로 전체 경로 사용
+        if not folder_name:
+            folder_name = folder_path.rstrip(os.sep)  # "C:" 형태로 표시
+        
         file_count = self._count_files_in_folder(folder_path, recursive=False)
         root_item = QTreeWidgetItem([f"📁 {folder_name} ({file_count})"])
         root_item.setData(0, Qt.ItemDataRole.UserRole, folder_path)
@@ -179,38 +181,54 @@ class FolderTreeWidget(QWidget):
     
     def _count_files_in_folder(self, folder_path: str, recursive: bool = False) -> int:
         """폴더 내 지원 파일 개수 계산"""
-        supported_ext = {'.hwp', '.docx', '.txt'}
+        supported_ext = {'.hwp', '.hwpx', '.docx'}
         count = 0
         
         try:
             for entry in os.scandir(folder_path):
-                if entry.is_file():
-                    ext = os.path.splitext(entry.name)[1].lower()
-                    if ext in supported_ext:
-                        count += 1
-                elif entry.is_dir() and recursive and not entry.name.startswith('.'):
-                    count += self._count_files_in_folder(entry.path, recursive=True)
-        except PermissionError:
+                try:
+                    if entry.is_file():
+                        ext = os.path.splitext(entry.name)[1].lower()
+                        if ext in supported_ext:
+                            count += 1
+                    elif entry.is_dir() and recursive and not entry.name.startswith('.'):
+                        count += self._count_files_in_folder(entry.path, recursive=True)
+                except (PermissionError, OSError):
+                    pass
+        except (PermissionError, OSError):
             pass
         
         return count
     
     def _add_subfolders(self, parent_item: QTreeWidgetItem, folder_path: str, max_depth: int = 5, current_depth: int = 0):
-        """하위 폴더를 재귀적으로 추가"""
+        """하위 폴더를 재귀적으로 추가 - 파일이 있는 폴더만 표시"""
         if current_depth >= max_depth:
             return
         
         try:
-            for entry in sorted(os.scandir(folder_path), key=lambda e: e.name.lower()):
-                if entry.is_dir() and not entry.name.startswith('.'):
-                    file_count = self._count_files_in_folder(entry.path, recursive=False)
-                    child_item = QTreeWidgetItem([f"📂 {entry.name} ({file_count})"])
-                    child_item.setData(0, Qt.ItemDataRole.UserRole, entry.path)
-                    parent_item.addChild(child_item)
-                    
-                    # 재귀적으로 하위 폴더 추가
-                    self._add_subfolders(child_item, entry.path, max_depth, current_depth + 1)
-        except PermissionError:
+            entries = list(os.scandir(folder_path))
+            entries.sort(key=lambda e: e.name.lower())
+            
+            for entry in entries:
+                try:
+                    if entry.is_dir() and not entry.name.startswith('.'):
+                        # 현재 폴더와 하위 폴더에 파일이 있는지 확인
+                        file_count = self._count_files_in_folder(entry.path, recursive=False)
+                        total_count = self._count_files_in_folder(entry.path, recursive=True)
+                        
+                        # 파일이 하나도 없는 폴더는 건너뜀
+                        if total_count == 0:
+                            continue
+                        
+                        child_item = QTreeWidgetItem([f"📂 {entry.name} ({file_count})"])
+                        child_item.setData(0, Qt.ItemDataRole.UserRole, entry.path)
+                        parent_item.addChild(child_item)
+                        
+                        # 재귀적으로 하위 폴더 추가
+                        self._add_subfolders(child_item, entry.path, max_depth, current_depth + 1)
+                except (PermissionError, OSError):
+                    pass
+        except (PermissionError, OSError):
             pass
     
     def _on_remove_folder(self):

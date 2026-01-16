@@ -10,7 +10,16 @@ from typing import Tuple, List, Dict
 
 
 def extract_text(file_path: str) -> str:
-    """HWP 파일에서 순수 텍스트 추출 (검색 인덱싱용)"""
+    """HWP/HWPX 파일에서 순수 텍스트 추출 (검색 인덱싱용) - 표 내용 포함"""
+    
+    # hwpx 파일은 별도 처리 (ZIP+XML 형식)
+    ext = os.path.splitext(file_path)[1].lower()
+    if ext == '.hwpx':
+        return extract_text_from_hwpx(file_path)
+    
+    text = ""
+    
+    # 먼저 hwp5txt 시도 (가장 빠름)
     try:
         from hwp5.hwp5txt import main as hwp5txt_main
         
@@ -24,9 +33,8 @@ def extract_text(file_path: str) -> str:
             
             if os.path.exists(tmp_path) and os.path.getsize(tmp_path) > 0:
                 with open(tmp_path, 'r', encoding='utf-8', errors='ignore') as f:
-                    return f.read().strip()
+                    text = f.read().strip()
         except SystemExit:
-            # hwp5txt may call sys.exit on error
             pass
         except Exception:
             pass
@@ -40,12 +48,221 @@ def extract_text(file_path: str) -> str:
     except Exception:
         pass
     
-    return ""
+    # hwp5txt로 추출한 텍스트가 너무 짧으면 xmlmodel로 표 내용도 추출
+    # (표만 있는 문서의 경우 hwp5txt는 거의 빈 텍스트를 반환함)
+    if len(text) < 50:
+        try:
+            text_with_tables = _extract_text_with_tables(file_path)
+            if len(text_with_tables) > len(text):
+                text = text_with_tables
+        except Exception:
+            pass
+    
+    return text
+
+
+def extract_text_from_hwpx(file_path: str) -> str:
+    """HWPX 파일에서 텍스트 추출 (ZIP+XML 형식)"""
+    import zipfile
+    import xml.etree.ElementTree as ET
+    
+    text_parts = []
+    
+    try:
+        with zipfile.ZipFile(file_path, 'r') as zf:
+            # Contents 폴더 내의 section*.xml 파일들에서 텍스트 추출
+            for name in sorted(zf.namelist()):
+                if name.startswith('Contents/section') and name.endswith('.xml'):
+                    try:
+                        xml_content = zf.read(name).decode('utf-8')
+                        section_text = _extract_text_from_hwpx_section(xml_content)
+                        if section_text:
+                            text_parts.append(section_text)
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+    
+    return '\n'.join(text_parts).strip()
+
+
+def _extract_text_from_hwpx_section(xml_content: str) -> str:
+    """HWPX section XML에서 텍스트 추출"""
+    import xml.etree.ElementTree as ET
+    
+    text_parts = []
+    
+    try:
+        # XML 네임스페이스 처리
+        # HWPX는 다양한 네임스페이스를 사용하므로 태그에서 네임스페이스 제거
+        root = ET.fromstring(xml_content)
+        
+        # 모든 텍스트 노드 순회
+        for elem in root.iter():
+            # 태그 이름에서 네임스페이스 제거
+            tag = elem.tag.split('}')[-1] if '}' in elem.tag else elem.tag
+            
+            # 텍스트 노드 (hp:t 또는 t 태그)
+            if tag == 't' and elem.text:
+                text_parts.append(elem.text)
+            
+            # 단락 끝에서 줄바꿈
+            elif tag == 'p':
+                text_parts.append('\n')
+    except Exception:
+        pass
+    
+    return ''.join(text_parts).strip()
+
+
+def extract_html_from_hwpx(file_path: str) -> Tuple[str, List[Dict]]:
+    """HWPX 파일에서 HTML 콘텐츠 추출"""
+    import zipfile
+    import xml.etree.ElementTree as ET
+    
+    html_parts = []
+    
+    try:
+        with zipfile.ZipFile(file_path, 'r') as zf:
+            for name in sorted(zf.namelist()):
+                if name.startswith('Contents/section') and name.endswith('.xml'):
+                    try:
+                        xml_content = zf.read(name).decode('utf-8')
+                        section_html = _extract_html_from_hwpx_section(xml_content)
+                        if section_html:
+                            html_parts.append(section_html)
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+    
+    if html_parts:
+        return '\n'.join(html_parts), []
+    
+    return "<p>내용을 추출할 수 없습니다.</p>", []
+
+
+def _extract_html_from_hwpx_section(xml_content: str) -> str:
+    """HWPX section XML에서 HTML 추출"""
+    import xml.etree.ElementTree as ET
+    
+    html_parts = []
+    current_paragraph = []
+    in_table = False
+    table_rows = []
+    current_row = []
+    current_cell = []
+    
+    try:
+        root = ET.fromstring(xml_content)
+        
+        for elem in root.iter():
+            tag = elem.tag.split('}')[-1] if '}' in elem.tag else elem.tag
+            
+            if tag == 't' and elem.text:
+                if in_table:
+                    current_cell.append(elem.text)
+                else:
+                    current_paragraph.append(elem.text)
+            
+            elif tag == 'p':
+                if current_paragraph and not in_table:
+                    text = ''.join(current_paragraph).strip()
+                    if text:
+                        escaped = html_lib.escape(text)
+                        html_parts.append(f"<p>{escaped}</p>")
+                    current_paragraph = []
+            
+            elif tag == 'tbl':
+                in_table = True
+                table_rows = []
+            
+            elif tag == 'tr':
+                current_row = []
+            
+            elif tag == 'tc':
+                current_cell = []
+            
+            # 테이블 셀 종료 (간단한 휴리스틱)
+            if tag in ('tc',) and current_cell:
+                current_row.append(''.join(current_cell))
+                current_cell = []
+            
+            if tag in ('tr',) and current_row:
+                table_rows.append(current_row)
+                current_row = []
+            
+            if tag in ('tbl',) and table_rows:
+                html_parts.append(_build_table_html_simple(table_rows))
+                in_table = False
+                table_rows = []
+                
+    except Exception:
+        pass
+    
+    # 마지막 단락 처리
+    if current_paragraph:
+        text = ''.join(current_paragraph).strip()
+        if text:
+            escaped = html_lib.escape(text)
+            html_parts.append(f"<p>{escaped}</p>")
+    
+    return '\n'.join(html_parts)
+
+
+def _build_table_html_simple(rows: list) -> str:
+    """간단한 테이블 HTML 생성"""
+    html = ['<table>']
+    for row in rows:
+        html.append('<tr>')
+        for cell in row:
+            escaped = html_lib.escape(cell) if cell else ''
+            html.append(f'<td>{escaped}</td>')
+        html.append('</tr>')
+    html.append('</table>')
+    return '\n'.join(html)
+
+
+def _extract_text_with_tables(file_path: str) -> str:
+    """xmlmodel을 사용하여 표 내용 포함 순수 텍스트 추출"""
+    from hwp5.xmlmodel import Hwp5File
+    from hwp5.treeop import STARTEVENT, ENDEVENT
+    
+    hwp = Hwp5File(file_path)
+    text_parts = []
+    
+    try:
+        for section in hwp.bodytext.sections:
+            for event, item in section.events():
+                model, attributes, context = item
+                model_name = model.__name__
+                
+                # 텍스트 이벤트에서 텍스트 추출
+                if model_name == 'Text' and event is STARTEVENT:
+                    text = attributes.get('text', '')
+                    if text:
+                        text_parts.append(text)
+                
+                # 단락 끝에서 줄바꿈 추가
+                elif model_name == 'Paragraph' and event is ENDEVENT:
+                    text_parts.append('\n')
+    except Exception:
+        pass
+    finally:
+        hwp.close()
+    
+    return ''.join(text_parts).strip()
 
 
 
 def extract_html(file_path: str) -> Tuple[str, List[Dict]]:
-    """HWP 파일에서 HTML 콘텐츠 추출 (표 내용 포함)"""
+    """HWP/HWPX 파일에서 HTML 콘텐츠 추출 (표 내용 포함)"""
+    
+    # hwpx 파일은 별도 처리
+    ext = os.path.splitext(file_path)[1].lower()
+    if ext == '.hwpx':
+        return extract_html_from_hwpx(file_path)
+    
     # 먼저 xmlmodel로 표 포함 추출 시도
     try:
         html_content = _extract_with_xmlmodel(file_path)

@@ -56,7 +56,7 @@ class MainWindow(QMainWindow):
         
         # Core 모듈 초기화
         self.indexer = FolderIndexer()
-        self.searcher = HWPSearcher()
+        self.searcher = HWPSearcher(self.indexer)  # FTS5 검색용 indexer 전달
         
         self._setup_ui()
         self._setup_menu()
@@ -65,7 +65,7 @@ class MainWindow(QMainWindow):
     
     def _setup_ui(self):
         """UI 초기화"""
-        self.setWindowTitle("HWP Instant Viewer v1.4")
+        self.setWindowTitle("HWP Instant Viewer v2.0")
         self.setMinimumSize(1200, 700)
         self.resize(1400, 800)
         
@@ -225,7 +225,7 @@ class MainWindow(QMainWindow):
         
         if indexed_files:
             # 색인된 데이터 사용
-            self.file_list.set_files(indexed_files, folder_path)
+            self.file_list.set_files(indexed_files)
         else:
             # 색인되지 않은 경우 디스크 직접 스캔 (메타데이터만)
             files = self._scan_folder_files(folder_path)
@@ -233,26 +233,33 @@ class MainWindow(QMainWindow):
     
     def _scan_folder_files(self, folder_path: str, include_subfolders: bool = True) -> list:
         """폴더 내 지원 파일들 스캔 (하위 폴더 포함 옵션)"""
-        supported_ext = {'.hwp', '.docx', '.txt'}
+        supported_ext = {'.hwp', '.hwpx', '.docx'}
         files = []
         
         def scan_recursive(path):
             try:
                 for entry in os.scandir(path):
-                    if entry.is_file():
-                        ext = os.path.splitext(entry.name)[1].lower()
-                        if ext in supported_ext:
-                            files.append({
-                                'file_path': entry.path,
-                                'file_name': entry.name,
-                                'folder_path': os.path.dirname(entry.path),
-                                'folder_name': os.path.basename(os.path.dirname(entry.path)),
-                                'extension': ext,
-                                'size': entry.stat().st_size
-                            })
-                    elif entry.is_dir() and include_subfolders and not entry.name.startswith('.'):
-                        scan_recursive(entry.path)
-            except PermissionError:
+                    try:
+                        if entry.is_file():
+                            ext = os.path.splitext(entry.name)[1].lower()
+                            if ext in supported_ext:
+                                try:
+                                    size = entry.stat().st_size
+                                except (PermissionError, OSError):
+                                    size = 0
+                                files.append({
+                                    'file_path': entry.path,
+                                    'file_name': entry.name,
+                                    'folder_path': os.path.dirname(entry.path),
+                                    'folder_name': os.path.basename(os.path.dirname(entry.path)),
+                                    'extension': ext,
+                                    'size': size
+                                })
+                        elif entry.is_dir() and include_subfolders and not entry.name.startswith('.'):
+                            scan_recursive(entry.path)
+                    except (PermissionError, OSError):
+                        pass
+            except (PermissionError, OSError):
                 pass
         
         scan_recursive(folder_path)
@@ -285,15 +292,12 @@ class MainWindow(QMainWindow):
         # 파일 확장자에 따라 적절한 추출기 사용
         ext = os.path.splitext(file_path)[1].lower()
         
-        if ext == '.hwp':
+        if ext == '.hwp' or ext == '.hwpx':
             from core.hwp_extractor import extract_html
             html_content, images = extract_html(file_path)
         elif ext == '.docx':
             from core.hwp_extractor import extract_html_from_docx
             html_content, images = extract_html_from_docx(file_path)
-        elif ext == '.txt':
-            from core.hwp_extractor import extract_html_from_txt
-            html_content, images = extract_html_from_txt(file_path)
         else:
             html_content, images = "<p>지원하지 않는 파일 형식입니다.</p>", []
         
@@ -302,7 +306,7 @@ class MainWindow(QMainWindow):
 
     
     def _on_search_requested(self, query: str):
-        """검색 요청 시"""
+        """검색 요청 시 - FTS5 전문 검색 사용"""
         self.status_bar.showMessage(f"검색 중: {query}")
         
         # 폴더 내 검색 옵션 확인
@@ -310,22 +314,30 @@ class MainWindow(QMainWindow):
         search_all = self.file_list.is_search_all()
         current_folder = self.file_list.get_current_folder()
         
+        # 검색 범위 결정
+        search_folder = None
         if folder_only and current_folder:
-            # 현재 폴더에서만 검색
-            all_files = self.indexer.get_files_in_folder(current_folder, include_subfolders=True)
+            search_folder = current_folder
             self.status_bar.showMessage(f"'{os.path.basename(current_folder)}' 폴더에서 검색 중...")
-        elif search_all:
-            # 전체 폴더 검색 (기본)
-            all_files = self.indexer.get_all_files()
-            self.status_bar.showMessage(f"모든 색인된 폴더에서 검색 중...")
         else:
-            # 옵션이 애매한 경우 선택된 폴더 우선, 없으면 전체
-            if current_folder:
-                all_files = self.indexer.get_files_in_folder(current_folder, include_subfolders=True)
-            else:
-                all_files = self.indexer.get_all_files()
+            self.status_bar.showMessage(f"전체 폴더에서 검색 중...")
         
-        results = self.searcher.search(query, all_files)
+        # FTS5 검색 사용 (초고속)
+        results = self.searcher.search_fts(query, search_folder)
+        
+        # FTS5 결과가 없으면 기존 방식으로 폴백
+        if not results:
+            if folder_only and current_folder:
+                all_files = self.indexer.get_files_in_folder(current_folder, include_subfolders=True)
+            elif search_all:
+                all_files = self.indexer.get_all_files()
+            else:
+                if current_folder:
+                    all_files = self.indexer.get_files_in_folder(current_folder, include_subfolders=True)
+                else:
+                    all_files = self.indexer.get_all_files()
+            
+            results = self.searcher.search(query, all_files)
         
         # 결과 표시
         self.file_list.set_search_results(results)
@@ -424,10 +436,8 @@ class MainWindow(QMainWindow):
         )
         
         if reply == QMessageBox.StandardButton.Yes:
-            # 색인 데이터 초기화
-            self.indexer.indexed_folders = []
-            self.indexer.files = {}
-            self.indexer._save_index()
+            # 색인 데이터 초기화 (SQLite)
+            self.indexer.reset_database()
             
             # UI 초기화
             self.folder_tree.set_folders([])
@@ -441,16 +451,17 @@ class MainWindow(QMainWindow):
         """정보 다이얼로그"""
         QMessageBox.about(
             self, "HWP Instant Viewer",
-            "HWP Instant Viewer v1.5.1\n\n"
+            "HWP Instant Viewer v2.0\n\n"
             "HWP 파일을 빠르게 탐색하고 검색하는 도구\n\n"
             "기능:\n"
             "• 폴더 트리 탐색\n"
-            "• HWP/DOCX/TXT 파일 색인\n"
-            "• 파일명 및 본문 내용 검색\n"
+            "• HWP/HWPX/DOCX 파일 색인\n"
+            "• FTS5 전문 검색 (초고속)\n"
             "• 검색어 하이라이트\n"
-            "• 표 텍스트 추출\n\n"
+            "• 표 텍스트 추출\n"
+            "• 파일 우클릭 탐색기 열기\n\n"
             "Developed by 윤영천 목사\n"
-            "Built with PyQt6"
+            "Built with PyQt6 + SQLite"
         )
     
     def closeEvent(self, event):

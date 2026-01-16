@@ -269,6 +269,9 @@ class FileListWidget(QWidget):
         # 파일 리스트
         self.list_widget = QListWidget()
         self.list_widget.itemClicked.connect(self._on_item_clicked)
+        # 우클릭 컨텍스트 메뉴 설정
+        self.list_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.list_widget.customContextMenuRequested.connect(self._show_context_menu)
         self.list_widget.setStyleSheet("""
             QListWidget {
                 background-color: #1e1e1e;
@@ -321,7 +324,7 @@ class FileListWidget(QWidget):
         self.sort_name_btn.setChecked(sort_type == 'name')
         self.sort_date_btn.setChecked(sort_type == 'date')
         
-        # 현재 표시된 목록 재정렬
+        # 현재 표시된 목록 재정렬 (항상 실행)
         if self._search_results:
             self._display_search_results(self._search_results)
         elif self._current_files:
@@ -332,25 +335,81 @@ class FileListWidget(QWidget):
         if not items:
             return items
         
-        if self._current_sort == 'date':
-            # 날짜순 (최신 먼저)
-            def get_mtime(item):
-                if isinstance(item, SearchResult):
-                    return item.file_info.modified_time
-                elif isinstance(item, FileInfo):
-                    return item.modified_time
-                return 0
-            return sorted(items, key=get_mtime, reverse=True)
-        else:
-            # 가나다순
-            def get_name(item):
-                if isinstance(item, SearchResult):
-                    return item.file_info.file_name.lower()
-                elif isinstance(item, FileInfo):
-                    return item.file_name.lower()
-                return ""
-            return sorted(items, key=get_name)
-
+        try:
+            if self._current_sort == 'date':
+                # 날짜순 (최신 먼저)
+                def get_mtime(item):
+                    try:
+                        if hasattr(item, 'file_info'):  # SearchResult
+                            return getattr(item.file_info, 'modified_time', 0) or 0
+                        elif hasattr(item, 'modified_time'):  # FileInfo
+                            return item.modified_time or 0
+                    except:
+                        pass
+                    return 0
+                return sorted(items, key=get_mtime, reverse=True)
+            else:
+                # 가나다순
+                def get_name(item):
+                    try:
+                        if hasattr(item, 'file_info'):  # SearchResult
+                            return getattr(item.file_info, 'file_name', '').lower()
+                        elif hasattr(item, 'file_name'):  # FileInfo
+                            return item.file_name.lower()
+                    except:
+                        pass
+                    return ""
+                return sorted(items, key=get_name)
+        except Exception:
+            return items
+    
+    def _show_context_menu(self, position):
+        """파일 아이템 우클릭 컨텍스트 메뉴"""
+        item = self.list_widget.itemAt(position)
+        if not item:
+            return
+        
+        file_path = item.data(Qt.ItemDataRole.UserRole)
+        if not file_path:
+            return
+        
+        from PyQt6.QtWidgets import QMenu
+        from PyQt6.QtGui import QAction
+        
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu {
+                background-color: #2d2d2d;
+                color: #d4d4d4;
+                border: 1px solid #3d3d3d;
+            }
+            QMenu::item:selected {
+                background-color: #094771;
+            }
+        """)
+        
+        # 탐색기에서 열기 액션
+        open_explorer_action = QAction("📂 탐색기에서 열기", self)
+        open_explorer_action.triggered.connect(lambda: self._open_in_explorer(file_path))
+        menu.addAction(open_explorer_action)
+        
+        menu.exec(self.list_widget.mapToGlobal(position))
+    
+    def _open_in_explorer(self, file_path: str):
+        """탐색기에서 파일 위치 열기"""
+        import subprocess
+        # Windows 경로 형식으로 정규화 (슬래시를 백슬래시로)
+        file_path = os.path.normpath(file_path)
+        folder_path = os.path.dirname(file_path)
+        try:
+            # Windows에서 탐색기 열고 파일 선택
+            subprocess.run(['explorer', '/select,', file_path], check=False)
+        except Exception:
+            try:
+                # 폴백: 폴더만 열기
+                os.startfile(folder_path)
+            except Exception:
+                pass
     
     def _on_item_clicked(self, item: QListWidgetItem):
         """파일 아이템 클릭"""
@@ -361,6 +420,9 @@ class FileListWidget(QWidget):
     def set_files(self, files: list):
         """파일 목록 설정 (FileInfo 또는 SearchResult 목록)"""
         self._current_files = files
+        # 현재 폴더 설정 (검색 범위용)
+        if files and isinstance(files[0], FileInfo):
+            self._current_folder = files[0].folder_path
         self._display_files(files)
     
     def set_files_direct(self, files: list, folder_path: str = ""):
@@ -454,8 +516,8 @@ class FileListWidget(QWidget):
         """확장자에 따른 아이콘 반환"""
         icons = {
             '.hwp': '📝',
-            '.docx': '📄',
-            '.txt': '📃'
+            '.hwpx': '📝',
+            '.docx': '📄'
         }
         return icons.get(extension.lower(), '📄')
     

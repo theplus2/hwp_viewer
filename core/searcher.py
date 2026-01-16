@@ -19,10 +19,68 @@ class SearchResult:
 
 
 class HWPSearcher:
-    """HWP 파일 검색 엔진"""
+    """HWP 파일 검색 엔진 - FTS5 전문 검색 지원"""
     
-    def __init__(self):
+    def __init__(self, indexer=None):
+        """
+        검색 엔진 초기화
+        
+        Args:
+            indexer: FolderIndexer 인스턴스 (FTS5 검색용)
+        """
         self.last_query = ""
+        self._indexer = indexer  # FTS5 검색용
+    
+    def set_indexer(self, indexer):
+        """indexer 설정 (FTS5 검색용)"""
+        self._indexer = indexer
+    
+    def search_fts(
+        self, 
+        query: str, 
+        folder_path: str = None
+    ) -> List[SearchResult]:
+        """
+        FTS5 전문 검색 (초고속)
+        
+        Args:
+            query: 검색어
+            folder_path: 특정 폴더로 제한 (None이면 전체)
+            
+        Returns:
+            List[SearchResult]: 검색 결과 목록
+        """
+        if not query.strip():
+            return []
+        
+        if not self._indexer:
+            return []
+        
+        self.last_query = query
+        results = []
+        
+        # FTS5 검색 수행
+        fts_results = self._indexer.search_fts(query, folder_path)
+        
+        for file_info, match_count in fts_results:
+            # 파일명/본문 매칭 여부 판단
+            query_lower = query.lower()
+            matched_in_filename = query_lower in file_info.file_name.lower()
+            matched_in_content = query_lower in file_info.content.lower() if file_info.content else False
+            
+            # 미리보기 생성
+            preview = self._generate_preview(file_info.content, query, re.IGNORECASE)
+            
+            result = SearchResult(
+                file_info=file_info,
+                match_count=match_count,
+                matched_in_filename=matched_in_filename,
+                matched_in_content=matched_in_content or not matched_in_filename,
+                preview=preview
+            )
+            results.append(result)
+        
+        return results
     
     def search(
         self, 
@@ -32,6 +90,8 @@ class HWPSearcher:
     ) -> List[SearchResult]:
         """
         파일명 + 본문 내용 검색
+        
+        FTS5 검색이 가능하면 우선 사용, 아니면 기존 방식 사용
         
         Args:
             query: 검색어
@@ -55,13 +115,17 @@ class HWPSearcher:
             filename_matches = pattern.findall(file_info.file_name)
             matched_in_filename = len(filename_matches) > 0
             
-            # 본문 검색
-            content_matches = pattern.findall(file_info.content)
+            # 본문 검색 - content가 비어있으면 실시간 추출
+            content = file_info.content
+            if not content or len(content) < 10:
+                content = self._extract_content_on_demand(file_info)
+            
+            content_matches = pattern.findall(content)
             matched_in_content = len(content_matches) > 0
             
             if matched_in_filename or matched_in_content:
                 total_matches = len(filename_matches) + len(content_matches)
-                preview = self._generate_preview(file_info.content, query, flags)
+                preview = self._generate_preview(content, query, flags)
                 
                 result = SearchResult(
                     file_info=file_info,
@@ -76,6 +140,26 @@ class HWPSearcher:
         results.sort(key=lambda r: r.match_count, reverse=True)
         
         return results
+    
+    def _extract_content_on_demand(self, file_info: FileInfo) -> str:
+        """필요 시 파일 내용 실시간 추출"""
+        try:
+            import os
+            ext = file_info.extension.lower()
+            file_path = file_info.file_path
+            
+            if not os.path.exists(file_path):
+                return ""
+            
+            if ext == '.hwp' or ext == '.hwpx':
+                from .hwp_extractor import extract_text
+                return extract_text(file_path)
+            elif ext == '.docx':
+                from .hwp_extractor import extract_text_from_docx
+                return extract_text_from_docx(file_path)
+        except Exception:
+            pass
+        return ""
     
     def _generate_preview(
         self, 
