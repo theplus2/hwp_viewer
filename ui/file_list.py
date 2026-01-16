@@ -468,5 +468,9 @@ class FileListWidget(QWidget):
         return self._current_folder
     
     def is_folder_only_search(self) -> bool:
-        """폴더 내 검색 옵션 체크 여부"""
+        """현재 폴더만 검색 옵션 체크 여부"""
         return self.folder_only_checkbox.isChecked()
+    
+    def is_search_all(self) -> bool:
+        """전체 폴더 검색 옵션 체크 여부"""
+        return self.search_all_checkbox.isChecked()

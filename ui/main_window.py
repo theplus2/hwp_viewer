@@ -220,9 +220,16 @@ class MainWindow(QMainWindow):
         """폴더 선택 시 - 바로 파일 목록 표시 (탐색기 스타일)"""
         self.status_bar.showMessage(f"폴더: {folder_path}")
         
-        # 폴더 내 파일들 직접 스캔 (색인 없이)
-        files = self._scan_folder_files(folder_path)
-        self.file_list.set_files_direct(files, folder_path)
+        # 1. 색인된 데이터가 있는지 먼저 확인 (본문 포함 정보를 위해)
+        indexed_files = self.indexer.get_files_in_folder(folder_path, include_subfolders=True)
+        
+        if indexed_files:
+            # 색인된 데이터 사용
+            self.file_list.set_files(indexed_files, folder_path)
+        else:
+            # 색인되지 않은 경우 디스크 직접 스캔 (메타데이터만)
+            files = self._scan_folder_files(folder_path)
+            self.file_list.set_files_direct(files, folder_path)
     
     def _scan_folder_files(self, folder_path: str, include_subfolders: bool = True) -> list:
         """폴더 내 지원 파일들 스캔 (하위 폴더 포함 옵션)"""
@@ -300,15 +307,23 @@ class MainWindow(QMainWindow):
         
         # 폴더 내 검색 옵션 확인
         folder_only = self.file_list.is_folder_only_search()
+        search_all = self.file_list.is_search_all()
         current_folder = self.file_list.get_current_folder()
         
         if folder_only and current_folder:
             # 현재 폴더에서만 검색
             all_files = self.indexer.get_files_in_folder(current_folder, include_subfolders=True)
             self.status_bar.showMessage(f"'{os.path.basename(current_folder)}' 폴더에서 검색 중...")
-        else:
-            # 전체 검색
+        elif search_all:
+            # 전체 폴더 검색 (기본)
             all_files = self.indexer.get_all_files()
+            self.status_bar.showMessage(f"모든 색인된 폴더에서 검색 중...")
+        else:
+            # 옵션이 애매한 경우 선택된 폴더 우선, 없으면 전체
+            if current_folder:
+                all_files = self.indexer.get_files_in_folder(current_folder, include_subfolders=True)
+            else:
+                all_files = self.indexer.get_all_files()
         
         results = self.searcher.search(query, all_files)
         
@@ -426,7 +441,7 @@ class MainWindow(QMainWindow):
         """정보 다이얼로그"""
         QMessageBox.about(
             self, "HWP Instant Viewer",
-            "HWP Instant Viewer v1.5\n\n"
+            "HWP Instant Viewer v1.5.1\n\n"
             "HWP 파일을 빠르게 탐색하고 검색하는 도구\n\n"
             "기능:\n"
             "• 폴더 트리 탐색\n"
