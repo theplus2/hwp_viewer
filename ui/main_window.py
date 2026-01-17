@@ -65,7 +65,7 @@ class MainWindow(QMainWindow):
     
     def _setup_ui(self):
         """UI 초기화"""
-        self.setWindowTitle("HWP Instant Viewer v2.2.2")
+        self.setWindowTitle("HWP Instant Viewer v2.2.3")
         self.setMinimumSize(1200, 700)
         self.resize(1400, 800)
         
@@ -457,7 +457,7 @@ class MainWindow(QMainWindow):
         """정보 다이얼로그"""
         QMessageBox.about(
             self, "HWP Instant Viewer",
-            "HWP Instant Viewer v2.2.2\n\n"
+            "HWP Instant Viewer v2.2.3\n\n"
             "HWP 파일을 빠르게 탐색하고 검색하는 도구\n\n"
             "기능:\n"
             "• 폴더 트리 탐색\n"
