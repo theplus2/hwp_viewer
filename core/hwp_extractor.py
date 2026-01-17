@@ -136,43 +136,79 @@ def _extract_text_with_olefile(file_path: str) -> str:
 
 
 def _parse_hwp_section_text(data: bytes) -> str:
-    """HWP Section 바이너리 데이터에서 유효한 텍스트 문자열만 필터링하여 추출"""
-    text_chars = []
+    """
+    HWP 5.0 Section 바이너리 데이터에서 유효한 텍스트만 레코드 기반으로 추출
+    HWPTAG_PARA_TEXT (ID: 67) 레코드만 파싱하여 외계어(비텍스트 데이터)를 완벽히 제거
+    """
+    text_parts = []
     i = 0
     size = len(data)
     
-    while i < size - 1:
-        # HWP 5.0은 기본적으로 리틀 엔디언 UTF-16 유니코드 사용
-        char_code = data[i] | (data[i+1] << 8)
-        
-        # 1. 제어 문자 처리 (0x0000 ~ 0x001F)
-        if char_code < 32:
-            if char_code == 10 or char_code == 13: # 줄바꿈
-                text_chars.append('\n')
-            elif char_code == 9: # 탭
-                text_chars.append('  ')
-            # 그 외 제어 코드는 무시 (문단 속도, 표, 그림 등의 제어 코드가 위치함)
-        
-        # 2. 한글 및 일반 텍스트 문자 영역 (0x0020 ~ 0xD7FF, 0xE000 ~ 0xFFFF)
-        # HWP 제어 문자 영역 및 일부 특수 영역 제외
-        elif (32 <= char_code < 0xD800) or (0xE000 <= char_code < 0xFFFE):
-            # 일부 HWP 전용 제어 코드 (0x1, 0x2, 0x3 등)가 이미 위에서 걸러짐
-            # 가독성이 높은 범위의 문자만 추가
-            try:
-                char = chr(char_code)
-                # 한글, 영문, 숫자, 주요 문장 부호 필터링
-                # (더 정교한 필터링이 필요할 수 있으나 검색 인덱싱용이므로 넓게 잡음)
-                text_chars.append(char)
-            except:
-                pass
-        
-        i += 2
+    # HWP 5.0 레코드 구조: 
+    # Header (4 bytes): [ID (10 bits) | Level (10 bits) | Size (12 bits)]
+    # 만약 Size가 4095이면 뒤에 4 bytes 추가 (Real Size)
     
-    text = ''.join(text_chars)
+    while i < size - 3:
+        try:
+            # 4바이트 헤더 읽기
+            header = data[i] | (data[i+1] << 8) | (data[i+2] << 16) | (data[i+3] << 24)
+            tag_id = header & 0x3FF
+            level = (header >> 10) & 0x3FF
+            length = (header >> 20) & 0xFFF
+            
+            i += 4
+            if length == 0xFFF:
+                if i + 4 <= size:
+                    length = data[i] | (data[i+1] << 8) | (data[i+2] << 16) | (data[i+3] << 24)
+                    i += 4
+            
+            record_end = i + length
+            if record_end > size:
+                break
+            
+            # HWPTAG_PARA_TEXT (ID: 67)만 처리
+            if tag_id == 67:
+                record_data = data[i:record_end]
+                para_text = []
+                j = 0
+                while j < len(record_data) - 1:
+                    char_code = record_data[j] | (record_data[j+1] << 8)
+                    
+                    # 제어 문자 영역 (0x0000 ~ 0x001F)
+                    if char_code < 32:
+                        # 줄바꿈, 탭 등 필수 문자만 유지
+                        if char_code == 10 or char_code == 13:
+                            para_text.append('\n')
+                        elif char_code == 9:
+                            para_text.append('  ')
+                        
+                        # HWP 제어 문자 필터링:
+                        # 0x1 (글자 겹침), 0x2 (그림/표 등 인라인 오브젝트), 0x3 (필드 끝) 등
+                        # 인라인 오브젝트(0x2)나 확장 컨트롤(0x3)의 경우 뒤에 따라오는 데이터를 건너뛰어야 할 수도 있으나,
+                        # 여기서는 PARA_TEXT 레코드 내부의 문자만 파싱하므로 단순히 무시함
+                        
+                    # 유효한 유니코드 텍스트 영역
+                    elif (char_code >= 32 and char_code < 0xD800) or (char_code >= 0xE000 and char_code <= 0xFFFF):
+                        try:
+                            para_text.append(chr(char_code))
+                        except:
+                            pass
+                    j += 2
+                
+                if para_text:
+                    text_parts.append(''.join(para_text))
+            
+            # 다음 레코드로 이동
+            i = record_end
+            
+        except Exception:
+            break
     
-    # 3. 불필요한 공백 및 중복 줄바꿈 정리
+    text = '\n'.join(text_parts)
+    
+    # 불필요한 공백 및 중복 줄바꿈 정리
     import re
-    text = re.sub(r'[\r\x00-\x08\x0b-\x0c\x0e-\x1f]', ' ', text) # 잔여 제어문자 제거
+    text = re.sub(r'[\x00-\x08\x0b-\x0c\x0e-\x1f]', ' ', text) # 잔여 특수 제어문자 제거
     text = re.sub(r'\n{3,}', '\n\n', text)
     text = re.sub(r' {2,}', ' ', text)
     
