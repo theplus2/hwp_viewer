@@ -190,6 +190,12 @@ class MainWindow(QMainWindow):
         about_action = QAction("정보", self)
         about_action.triggered.connect(self._show_about)
         help_menu.addAction(about_action)
+        
+        help_menu.addSeparator()
+        
+        donation_action = QAction("후원문의", self)
+        donation_action.triggered.connect(self._show_donation)
+        help_menu.addAction(donation_action)
     
     def _connect_signals(self):
         """시그널 연결"""
@@ -451,7 +457,7 @@ class MainWindow(QMainWindow):
         """정보 다이얼로그"""
         QMessageBox.about(
             self, "HWP Instant Viewer",
-            "HWP Instant Viewer v2.0\n\n"
+            "HWP Instant Viewer v2.2\n\n"
             "HWP 파일을 빠르게 탐색하고 검색하는 도구\n\n"
             "기능:\n"
             "• 폴더 트리 탐색\n"
@@ -461,7 +467,17 @@ class MainWindow(QMainWindow):
             "• 표 텍스트 추출\n"
             "• 파일 우클릭 탐색기 열기\n\n"
             "Developed by 윤영천 목사\n"
-            "Built with PyQt6 + SQLite"
+            "Built with PyQt6 + SQLite\n\n"
+            "문의 http://blog.naver.com/theplus2"
+        )
+    
+    def _show_donation(self):
+        """후원 안내 다이얼로그"""
+        QMessageBox.information(
+            self, "후원 안내",
+            "안녕하세요! 개발하는데 많은 노력과 시간이 들어갔습니다.\n"
+            "커피 한 잔의 여유를 즐길 수 있는 작은 후원의 마음을 전해주시면 감사드리겠습니다.\n\n"
+            "하나은행 670-910177-84807"
         )
     
     def closeEvent(self, event):
