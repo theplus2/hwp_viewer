@@ -24,7 +24,7 @@ def main():
     
     app = QApplication(sys.argv)
     app.setApplicationName("HWP Instant Viewer")
-    app.setApplicationVersion("2.3.3")
+    app.setApplicationVersion("2.3.4")
     
     # 아이콘 설정 (있으면)
     icon_path = os.path.join(project_root, "resources", "icon.ico")
