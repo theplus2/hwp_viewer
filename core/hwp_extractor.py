@@ -57,14 +57,15 @@ def extract_text(file_path: str) -> str:
         except Exception:
             pass
     
-    # 여전히 텍스트가 부족하면 olefile 폴백 사용
-    if len(text) < 50:
-        try:
-            text_olefile = _extract_text_with_olefile(file_path)
-            if len(text_olefile) > len(text):
-                text = text_olefile
-        except Exception:
-            pass
+    # olefile 폴백은 HWP 내부 구조를 정확히 파싱하지 못하므로 비활성화
+    # (외계어 출력 문제 발생)
+    # if len(text) < 50:
+    #     try:
+    #         text_olefile = _extract_text_with_olefile(file_path)
+    #         if len(text_olefile) > len(text):
+    #             text = text_olefile
+    #     except Exception:
+    #         pass
     
     return text
 
