@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (
     QMessageBox, QProgressDialog, QApplication, QStatusBar
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QAction
+from PyQt6.QtGui import QAction, QKeySequence
 
 # 프로젝트 루트를 path에 추가
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -159,14 +159,14 @@ class MainWindow(QMainWindow):
         file_menu = menubar.addMenu("파일")
         
         add_folder_action = QAction("폴더 추가", self)
-        add_folder_action.setShortcut("Ctrl+O")
+        add_folder_action.setShortcut(QKeySequence.StandardKey.Open)
         add_folder_action.triggered.connect(self.folder_tree._on_add_folder)
         file_menu.addAction(add_folder_action)
         
         file_menu.addSeparator()
         
         exit_action = QAction("종료", self)
-        exit_action.setShortcut("Ctrl+Q")
+        exit_action.setShortcut(QKeySequence.StandardKey.Quit)
         exit_action.triggered.connect(self.close)
         file_menu.addAction(exit_action)
         
@@ -174,7 +174,7 @@ class MainWindow(QMainWindow):
         index_menu = menubar.addMenu("색인")
         
         reindex_action = QAction("전체 재색인", self)
-        reindex_action.setShortcut("F5")
+        reindex_action.setShortcut(QKeySequence.StandardKey.Refresh)
         reindex_action.triggered.connect(self._reindex_all)
         index_menu.addAction(reindex_action)
         
