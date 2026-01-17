@@ -49,9 +49,20 @@ jobs:
           
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: dist/HWPViewer.exe
+          tag_name: ${{ github.ref_name }}
+          name: HWP Instant Viewer ${{ github.ref_name }}
+          body: |
+            ## HWP Instant Viewer ${{ github.ref_name }} 릴리즈
+            
+            ### 주요 업데이트
+            - 후원문의 메뉴 추가
+            - 개발자 문의처 정보 추가
+            - 빌드 아이콘 이슈 해결 및 버전 정보 v2.2 통일
+            
+            다운로드 아래의 **HWPViewer.exe**를 받아서 실행하세요.
           draft: false
           prerelease: false
         env:
