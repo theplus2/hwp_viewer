@@ -329,3 +329,10 @@ class FolderTreeWidget(QWidget):
     def get_folders(self) -> list:
         """등록된 폴더 목록 반환"""
         return self.root_folders.copy()
+    
+    def get_selected_folder(self) -> str:
+        """현재 선택된 폴더 경로 반환"""
+        current_item = self.tree_widget.currentItem()
+        if current_item:
+            return current_item.data(0, Qt.ItemDataRole.UserRole)
+        return ""

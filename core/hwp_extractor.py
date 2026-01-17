@@ -329,13 +329,15 @@ def _build_table_html_simple(rows: list) -> str:
 
 def _extract_text_with_tables(file_path: str) -> str:
     """xmlmodel을 사용하여 표 내용 포함 순수 텍스트 추출"""
-    from hwp5.xmlmodel import Hwp5File
-    from hwp5.treeop import STARTEVENT, ENDEVENT
-    
-    hwp = Hwp5File(file_path)
     text_parts = []
+    hwp = None
     
     try:
+        from hwp5.xmlmodel import Hwp5File
+        from hwp5.treeop import STARTEVENT, ENDEVENT
+        
+        hwp = Hwp5File(file_path)
+        
         for section in hwp.bodytext.sections:
             for event, item in section.events():
                 model, attributes, context = item
@@ -353,9 +355,14 @@ def _extract_text_with_tables(file_path: str) -> str:
     except Exception:
         pass
     finally:
-        hwp.close()
+        if hwp is not None:
+            try:
+                hwp.close()
+            except Exception:
+                pass
     
     return ''.join(text_parts).strip()
+
 
 
 
@@ -386,11 +393,8 @@ def extract_html(file_path: str) -> Tuple[str, List[Dict]]:
 
 def _extract_with_xmlmodel(file_path: str) -> str:
     """xmlmodel을 사용하여 표 내용까지 추출 (본문만, 중첩 표 지원)"""
-    from hwp5.xmlmodel import Hwp5File
-    from hwp5.treeop import STARTEVENT, ENDEVENT
-    
-    hwp = Hwp5File(file_path)
     html_parts = []
+    hwp = None
     
     # 표 관련 상태 (스택으로 중첩 표 지원)
     table_stack = []  # 각 요소: {'rows': [], 'current_row': []}
@@ -402,6 +406,11 @@ def _extract_with_xmlmodel(file_path: str) -> str:
     paragraph_text = []
     
     try:
+        from hwp5.xmlmodel import Hwp5File
+        from hwp5.treeop import STARTEVENT, ENDEVENT
+        
+        hwp = Hwp5File(file_path)
+        
         # bodytext만 순회하여 머리글/바닥글 중복 방지
         for section in hwp.bodytext.sections:
             for event, item in section.events():
@@ -480,7 +489,11 @@ def _extract_with_xmlmodel(file_path: str) -> str:
     except Exception:
         pass
     finally:
-        hwp.close()
+        if hwp is not None:
+            try:
+                hwp.close()
+            except Exception:
+                pass
     
     # 마지막 단락 처리
     if paragraph_text:

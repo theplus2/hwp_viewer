@@ -108,7 +108,7 @@ class MainWindow(QMainWindow):
     
     def _setup_ui(self):
         """UI 초기화"""
-        self.setWindowTitle("HWP Instant Viewer v2.3.3")
+        self.setWindowTitle("HWP Instant Viewer v2.3.4")
         self.setMinimumSize(1200, 700)
         self.resize(1400, 800)
         
@@ -457,7 +457,7 @@ class MainWindow(QMainWindow):
         self.index_worker.start()
     
     def _reindex_all(self):
-        """전체 재색인"""
+        """전체 재색인 - 순차적 큐 기반"""
         folders = self.indexer.indexed_folders
         
         if not folders:
@@ -471,9 +471,91 @@ class MainWindow(QMainWindow):
         )
         
         if reply == QMessageBox.StandardButton.Yes:
-            for folder in folders:
-                if os.path.isdir(folder):
-                    self._index_folder(folder)
+            # 유효한 폴더만 큐에 추가
+            self._reindex_queue = [f for f in folders if os.path.isdir(f)]
+            self._reindex_total = len(self._reindex_queue)
+            self._reindex_completed = 0
+            
+            if self._reindex_queue:
+                self.status_bar.showMessage(f"전체 재색인 시작: {self._reindex_total}개 폴더")
+                self._index_next_folder()
+    
+    def _index_next_folder(self):
+        """큐에서 다음 폴더를 꺼내 색인 시작"""
+        if not self._reindex_queue:
+            # 모든 폴더 완료
+            self.status_bar.showMessage(f"전체 재색인 완료: {self._reindex_completed}개 폴더")
+            QMessageBox.information(
+                self, "전체 재색인 완료",
+                f"총 {self._reindex_completed}개 폴더의 재색인이 완료되었습니다."
+            )
+            return
+        
+        folder_path = self._reindex_queue.pop(0)
+        folder_name = os.path.basename(folder_path)
+        remaining = len(self._reindex_queue)
+        
+        # 프로그레스 다이얼로그
+        progress = QProgressDialog(
+            f"[{self._reindex_completed + 1}/{self._reindex_total}] 색인 중: {folder_name}",
+            "취소", 0, 100, self
+        )
+        progress.setWindowTitle(f"재색인 진행 ({self._reindex_completed + 1}/{self._reindex_total})")
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setStyleSheet("""
+            QProgressDialog {
+                background-color: #2d2d2d;
+                color: #ffffff;
+            }
+            QProgressDialog QLabel {
+                color: #ffffff;
+                font-size: 13px;
+            }
+            QPushButton {
+                color: #ffffff;
+                background-color: #555555;
+                border: none;
+                padding: 5px 15px;
+                border-radius: 3px;
+            }
+            QProgressBar {
+                border: 1px solid #3d3d3d;
+                border-radius: 3px;
+                text-align: center;
+                color: #ffffff;
+            }
+            QProgressBar::chunk {
+                background-color: #007acc;
+            }
+        """)
+        progress.show()
+        self._current_reindex_progress = progress
+        
+        # 백그라운드 스레드에서 색인
+        self.index_worker = IndexWorker(self.indexer, folder_path)
+        
+        def on_progress(current, total, filename):
+            if total > 0 and not progress.wasCanceled():
+                progress.setValue(int(current / total * 100))
+                progress.setLabelText(f"[{self._reindex_completed + 1}/{self._reindex_total}] {filename}")
+        
+        def on_finished(count):
+            progress.close()
+            self._reindex_completed += 1
+            
+            # 파일 목록 갱신
+            if hasattr(self, 'folder_tree') and self.folder_tree.tree_widget.currentItem():
+                current_folder = self.folder_tree.get_selected_folder()
+                if current_folder:
+                    files = self.indexer.get_files_in_folder(current_folder)
+                    self.file_list.set_files(files)
+            
+            # 다음 폴더 처리
+            self._index_next_folder()
+        
+        self.index_worker.progress.connect(on_progress)
+        self.index_worker.finished.connect(on_finished)
+        self.index_worker.start()
     
     def _reset_database(self):
         """전체 DB 초기화"""
@@ -500,7 +582,7 @@ class MainWindow(QMainWindow):
         """정보 다이얼로그"""
         QMessageBox.about(
             self, "HWP Instant Viewer",
-            "HWP Instant Viewer v2.3.3\n\n"
+            "HWP Instant Viewer v2.3.4\n\n"
             "HWP 파일을 빠르게 탐색하고 검색하는 도구\n\n"
             "기능:\n"
             "• 폴더 트리 탐색\n"
