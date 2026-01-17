@@ -29,7 +29,7 @@ jobs:
           
       - name: Build exe
         run: |
-          .\.venv\Scripts\python -m PyInstaller --onefile --windowed --icon assets/icon.ico --name HWPViewer --distpath dist --workpath build main.py
+          .\.venv\Scripts\python -m PyInstaller --onefile --windowed --icon assets/icon.ico --name HWPViewer --hidden-import=hwp5 --hidden-import=hwp5.xmlmodel --hidden-import=hwp5.hwp5txt --hidden-import=docx --distpath dist --workpath build main.py
           
       - name: Check Build Result
         shell: pwsh
@@ -114,9 +114,9 @@ jobs:
           source .venv/bin/activate
           # 아이콘 파일이 있으면 사용, 없으면 기본 아이콘
           if [ -f "assets/icon.icns" ]; then
-            pyinstaller --windowed --noconfirm --icon assets/icon.icns --name "HWPViewer" --add-data "resources:resources" main.py
+            pyinstaller --windowed --noconfirm --icon assets/icon.icns --name "HWPViewer" --hidden-import=hwp5 --hidden-import=hwp5.xmlmodel --hidden-import=hwp5.hwp5txt --hidden-import=docx --add-data "resources:resources" main.py
           else
-            pyinstaller --windowed --noconfirm --name "HWPViewer" --add-data "resources:resources" main.py
+            pyinstaller --windowed --noconfirm --name "HWPViewer" --hidden-import=hwp5 --hidden-import=hwp5.xmlmodel --hidden-import=hwp5.hwp5txt --hidden-import=docx --add-data "resources:resources" main.py
           fi
           
       - name: Create DMG
