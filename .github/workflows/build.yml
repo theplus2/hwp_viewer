@@ -57,13 +57,99 @@ jobs:
           body: |
             ## HWP Instant Viewer ${{ github.ref_name }} 릴리즈
             
-            ### 주요 업데이트
-            - 후원문의 메뉴 추가
-            - 개발자 문의처 정보 추가
-            - 빌드 아이콘 이슈 해결 및 버전 정보 v2.2 통일
+            ### 다운로드
+            - **Windows**: HWPViewer.exe
+            - **macOS**: HWPViewer.dmg
             
-            다운로드 아래의 **HWPViewer.exe**를 받아서 실행하세요.
+            ### 주요 업데이트
+            - 폴더 검색 및 추출 기능 안정화
+            - 버전 정보 업데이트
           draft: false
           prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-macos:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          
+      - name: Install dependencies
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+          brew install create-dmg
+          
+      - name: Create icon.icns
+        run: |
+          if [ -f "assets/icon.png" ]; then
+            mkdir HWPViewer.iconset
+            sips -z 16 16     assets/icon.png --out HWPViewer.iconset/icon_16x16.png
+            sips -z 32 32     assets/icon.png --out HWPViewer.iconset/icon_16x16@2x.png
+            sips -z 32 32     assets/icon.png --out HWPViewer.iconset/icon_32x32.png
+            sips -z 64 64     assets/icon.png --out HWPViewer.iconset/icon_32x32@2x.png
+            sips -z 128 128   assets/icon.png --out HWPViewer.iconset/icon_128x128.png
+            sips -z 256 256   assets/icon.png --out HWPViewer.iconset/icon_128x128@2x.png
+            sips -z 256 256   assets/icon.png --out HWPViewer.iconset/icon_256x256.png
+            sips -z 512 512   assets/icon.png --out HWPViewer.iconset/icon_256x256@2x.png
+            sips -z 512 512   assets/icon.png --out HWPViewer.iconset/icon_512x512.png
+            iconutil -c icns HWPViewer.iconset
+            mv HWPViewer.icns assets/icon.icns
+          else
+            echo "Warning: assets/icon.png not found. Skipping icon creation."
+          fi
+          
+      - name: Build App
+        run: |
+          source .venv/bin/activate
+          # 아이콘 파일이 있으면 사용, 없으면 기본 아이콘
+          if [ -f "assets/icon.icns" ]; then
+            pyinstaller --windowed --noconfirm --icon assets/icon.icns --name "HWPViewer" --add-data "resources:resources" main.py
+          else
+            pyinstaller --windowed --noconfirm --name "HWPViewer" --add-data "resources:resources" main.py
+          fi
+          
+      - name: Create DMG
+        run: |
+          # dist/HWPViewer.app이 생성되었는지 확인
+          if [ ! -d "dist/HWPViewer.app" ]; then
+            echo "Error: dist/HWPViewer.app not found"
+            exit 1
+          fi
+          
+          # DMG 생성
+          create-dmg \
+            --volname "HWP Viewer Installer" \
+            --window-pos 200 120 \
+            --window-size 800 400 \
+            --icon-size 100 \
+            --icon "HWPViewer.app" 200 190 \
+            --hide-extension "HWPViewer.app" \
+            --app-drop-link 600 185 \
+            "dist/HWPViewer.dmg" \
+            "dist/HWPViewer.app"
+            
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: macos-dmg
+          path: dist/HWPViewer.dmg
+          
+      - name: Release DMG
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/HWPViewer.dmg
+          tag_name: ${{ github.ref_name }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
