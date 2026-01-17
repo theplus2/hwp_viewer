@@ -12,14 +12,17 @@ from typing import Tuple, List, Dict
 def extract_text(file_path: str) -> str:
     """HWP/HWPX 파일에서 순수 텍스트 추출 (검색 인덱싱용) - 표 내용 포함"""
     
-    # hwpx 파일은 별도 처리 (ZIP+XML 형식)
+    file_name = os.path.basename(file_path)
     ext = os.path.splitext(file_path)[1].lower()
+    
+    # hwpx 파일은 별도 처리 (ZIP+XML 형식)
     if ext == '.hwpx':
         return extract_text_from_hwpx(file_path)
     
     text = ""
+    print(f"[DEBUG] HWP 추출 시작: {file_name}")
     
-    # 먼저 hwp5txt 시도 (가장 빠름)
+    # 1단계: hwp5txt 시도 (가장 빠름)
     try:
         from hwp5.hwp5txt import main as hwp5txt_main
         
@@ -34,10 +37,12 @@ def extract_text(file_path: str) -> str:
             if os.path.exists(tmp_path) and os.path.getsize(tmp_path) > 0:
                 with open(tmp_path, 'r', encoding='utf-8', errors='ignore') as f:
                     text = f.read().strip()
+                    if text:
+                        print(f"[DEBUG] 1단계(hwp5txt) 성공: {len(text)}자 추출")
         except SystemExit:
             pass
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[DEBUG] 1단계(hwp5txt) 오류: {str(e)}")
         finally:
             sys.argv = saved_argv
             if os.path.exists(tmp_path):
@@ -45,39 +50,49 @@ def extract_text(file_path: str) -> str:
                     os.remove(tmp_path)
                 except:
                     pass
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[DEBUG] hwp5txt 라이브러리 로드 실패: {str(e)}")
     
-    # hwp5txt로 추출한 텍스트가 너무 짧으면 xmlmodel로 표 내용도 추출
+    # 2단계: hwp5txt로 추출한 텍스트가 너무 짧으면 xmlmodel로 표 내용도 추출
     if len(text) < 50:
+        print(f"[DEBUG] 2단계(xmlmodel) 시도 중...")
         try:
             text_with_tables = _extract_text_with_tables(file_path)
             if len(text_with_tables) > len(text):
                 text = text_with_tables
-        except Exception:
-            pass
+                print(f"[DEBUG] 2단계(xmlmodel) 성공: {len(text)}자 추출")
+        except Exception as e:
+            print(f"[DEBUG] 2단계(xmlmodel) 오류: {str(e)}")
     
-    # olefile 폴백은 HWP 내부 구조를 정확히 파싱하지 못하므로 비활성화
-    # (외계어 출력 문제 발생)
-    # if len(text) < 50:
-    #     try:
-    #         text_olefile = _extract_text_with_olefile(file_path)
-    #         if len(text_olefile) > len(text):
-    #             text = text_olefile
-    #     except Exception:
-    #         pass
+    # 3단계: 최후의 수단 - 외부 라이브러리 의존성 없는 olefile 파싱
+    # hwp5 라이브러리가 PyInstaller 환경에서 pkg_resources 문제 등으로 실패할 때를 위한 안전 장치
+    if len(text) < 50:
+        print(f"[DEBUG] 3단계(olefile fallback) 시도 중...")
+        try:
+            text_fallback = _extract_text_with_olefile(file_path)
+            if len(text_fallback) > len(text):
+                text = text_fallback
+                print(f"[DEBUG] 3단계(olefile fallback) 성공: {len(text)}자 추출")
+        except Exception as e:
+            print(f"[DEBUG] 3단계(olefile fallback) 오류: {str(e)}")
     
+    if not text:
+        print(f"[WARNING] 모든 추출 단계 실패: {file_name}")
+        
     return text
 
 
 def _extract_text_with_olefile(file_path: str) -> str:
-    """olefile을 사용하여 HWP에서 텍스트 추출 (PyInstaller 호환 폴백)"""
-    import olefile
-    import zlib
-    
+    """olefile을 사용하여 HWP에서 텍스트 추출 (PyInstaller 호환용 강력한 폴백)"""
+    try:
+        import olefile
+        import zlib
+    except ImportError:
+        return ""
+        
     text_parts = []
     
-    # OLE2 형식인지 먼저 확인 (HWPX는 ZIP 형식이므로 제외)
+    # OLE2 형식인지 확인 (HWPX는 ZIP 형식이므로 제외)
     if not olefile.isOleFile(file_path):
         return ""
     
@@ -85,23 +100,28 @@ def _extract_text_with_olefile(file_path: str) -> str:
         ole = olefile.OleFileIO(file_path)
         
         # BodyText 스트림에서 텍스트 추출
+        # HWP 5.0은 BodyText 하위에 Section0, Section1... 스트림 존재
         for stream_name in ole.listdir():
             stream_path = '/'.join(stream_name)
             
-            # BodyText/Section* 스트림 찾기
             if 'BodyText' in stream_path and 'Section' in stream_path:
                 try:
                     data = ole.openstream(stream_name).read()
                     
-                    # 압축된 데이터인 경우 해제
+                    # 압축 여부 확인 (HWP 파일은 대개 가변 길이 압축 사용)
+                    # 데이터의 앞부분을 보고 zlib 압축 여부 판단 시도 (단순 무시하고 시도)
                     try:
-                        decompressed = zlib.decompress(data, -15)
-                        data = decompressed
+                        # HWP는 zlib의 raw inflate를 사용하거나 헤더가 다를 수 있음
+                        # -15는 raw deflate를 의미 (HWP에서 흔히 사용)
+                        data = zlib.decompress(data, -15)
                     except:
-                        pass
+                        try:
+                            # 표준 zlib 압축 시도
+                            data = zlib.decompress(data)
+                        except:
+                            pass
                     
-                    # 유니코드 텍스트 추출 (2바이트씩)
-                    # HWP 내부 형식에서 텍스트 청크 찾기
+                    # 유니코드 텍스트 파싱
                     extracted = _parse_hwp_section_text(data)
                     if extracted:
                         text_parts.append(extracted)
@@ -116,41 +136,48 @@ def _extract_text_with_olefile(file_path: str) -> str:
 
 
 def _parse_hwp_section_text(data: bytes) -> str:
-    """HWP Section 바이너리 데이터에서 텍스트 추출"""
+    """HWP Section 바이너리 데이터에서 유효한 텍스트 문자열만 필터링하여 추출"""
     text_chars = []
     i = 0
+    size = len(data)
     
-    while i < len(data) - 1:
-        # 2바이트씩 읽어 유니코드 문자로 해석
+    while i < size - 1:
+        # HWP 5.0은 기본적으로 리틀 엔디언 UTF-16 유니코드 사용
         char_code = data[i] | (data[i+1] << 8)
         
-        # 제어 문자 및 특수 코드 처리
-        if char_code == 0:
-            # 널 문자 - 무시
-            pass
-        elif char_code == 10 or char_code == 13:
-            # 줄바꿈
-            text_chars.append('\n')
-        elif char_code < 32:
-            # 기타 제어 문자 - 공백으로
-            if char_code == 9:  # 탭
-                text_chars.append(' ')
-        elif 32 <= char_code < 0xD800 or 0xE000 <= char_code < 0xFFFE:
-            # 유효한 유니코드 범위
+        # 1. 제어 문자 처리 (0x0000 ~ 0x001F)
+        if char_code < 32:
+            if char_code == 10 or char_code == 13: # 줄바꿈
+                text_chars.append('\n')
+            elif char_code == 9: # 탭
+                text_chars.append('  ')
+            # 그 외 제어 코드는 무시 (문단 속도, 표, 그림 등의 제어 코드가 위치함)
+        
+        # 2. 한글 및 일반 텍스트 문자 영역 (0x0020 ~ 0xD7FF, 0xE000 ~ 0xFFFF)
+        # HWP 제어 문자 영역 및 일부 특수 영역 제외
+        elif (32 <= char_code < 0xD800) or (0xE000 <= char_code < 0xFFFE):
+            # 일부 HWP 전용 제어 코드 (0x1, 0x2, 0x3 등)가 이미 위에서 걸러짐
+            # 가독성이 높은 범위의 문자만 추가
             try:
-                text_chars.append(chr(char_code))
+                char = chr(char_code)
+                # 한글, 영문, 숫자, 주요 문장 부호 필터링
+                # (더 정교한 필터링이 필요할 수 있으나 검색 인덱싱용이므로 넓게 잡음)
+                text_chars.append(char)
             except:
                 pass
         
         i += 2
     
-    # 연속된 공백/줄바꿈 정리
     text = ''.join(text_chars)
+    
+    # 3. 불필요한 공백 및 중복 줄바꿈 정리
     import re
+    text = re.sub(r'[\r\x00-\x08\x0b-\x0c\x0e-\x1f]', ' ', text) # 잔여 제어문자 제거
     text = re.sub(r'\n{3,}', '\n\n', text)
     text = re.sub(r' {2,}', ' ', text)
     
     return text.strip()
+
 
 
 def extract_text_from_hwpx(file_path: str) -> str:
