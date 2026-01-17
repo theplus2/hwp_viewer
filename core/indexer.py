@@ -260,6 +260,10 @@ class FolderIndexer:
         if batch:
             self._db.add_files_batch(batch)
         
+        # FTS5 인덱스 재구축 (INSERT OR REPLACE 후 동기화 보장)
+        if indexed_count > 0:
+            self._db.rebuild_fts()
+        
         return indexed_count
     
     def index_files(

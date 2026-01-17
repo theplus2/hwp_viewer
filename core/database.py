@@ -225,8 +225,13 @@ class DatabaseManager:
         except Exception:
             return False
     
-    def add_files_batch(self, file_infos: List[FileInfo]) -> int:
-        """배치 단위 파일 추가 (성능 최적화)"""
+    def add_files_batch(self, file_infos: List[FileInfo], rebuild_fts_after: bool = False) -> int:
+        """배치 단위 파일 추가 (성능 최적화)
+        
+        Args:
+            file_infos: 추가할 파일 정보 목록
+            rebuild_fts_after: True면 배치 삽입 후 FTS 재구축 (대량 삽입 시 사용 권장)
+        """
         if not file_infos:
             return 0
         
@@ -254,8 +259,13 @@ class DatabaseManager:
                 
                 added = cursor.rowcount
                 conn.commit()
+                
         except Exception as e:
             print(f"배치 삽입 오류: {e}")
+        
+        # 대량 삽입 후 FTS 재구축 (INSERT OR REPLACE로 인한 불일치 해결)
+        if rebuild_fts_after and added > 0:
+            self.rebuild_fts()
         
         return added
     
@@ -514,6 +524,20 @@ class DatabaseManager:
                 conn.commit()
         except Exception:
             pass
+    
+    def rebuild_fts(self):
+        """FTS5 인덱스 재구축 - INSERT OR REPLACE로 인한 불일치 해결"""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # FTS 테이블 완전 재구축 (content 테이블에서 다시 동기화)
+                cursor.execute("INSERT INTO files_fts(files_fts) VALUES('rebuild')")
+                conn.commit()
+                return True
+        except Exception as e:
+            print(f"FTS 재구축 오류: {e}")
+            return False
     
     def close(self):
         """연결 종료"""
