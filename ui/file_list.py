@@ -34,6 +34,12 @@ class FileListWidget(QWidget):
         self._current_files = []  # FileInfo 목록
         self._search_results = []  # SearchResult 목록
         self._current_folder = ""  # 현재 선택된 폴더
+        
+        # 페이징 관련
+        self._page_size = 50  # 페이지당 항목 수
+        self._current_page = 0  # 현재 페이지 (0부터 시작)
+        self._total_pages = 0  # 전체 페이지 수
+        
         self._setup_ui()
     
     def _setup_ui(self):
@@ -292,6 +298,110 @@ class FileListWidget(QWidget):
             }
         """)
         layout.addWidget(self.list_widget)
+        
+        # 페이지 네비게이션 영역
+        self.page_layout = QHBoxLayout()
+        self.page_layout.setSpacing(10)
+        
+        self.prev_btn = QPushButton("◀ 이전")
+        self.prev_btn.clicked.connect(self._on_prev_page)
+        self.prev_btn.setEnabled(False)
+        self.prev_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #555555;
+                color: white;
+                border: none;
+                padding: 6px 12px;
+                border-radius: 4px;
+                font-size: 12px;
+            }
+            QPushButton:hover:enabled {
+                background-color: #007acc;
+            }
+            QPushButton:disabled {
+                background-color: #3d3d3d;
+                color: #666666;
+            }
+        """)
+        self.page_layout.addWidget(self.prev_btn)
+        
+        self.page_label = QLabel("페이지 0/0")
+        self.page_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.page_label.setStyleSheet("""
+            QLabel {
+                color: #888888;
+                font-size: 12px;
+                padding: 4px 10px;
+            }
+        """)
+        self.page_layout.addWidget(self.page_label)
+        
+        self.next_btn = QPushButton("다음 ▶")
+        self.next_btn.clicked.connect(self._on_next_page)
+        self.next_btn.setEnabled(False)
+        self.next_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #555555;
+                color: white;
+                border: none;
+                padding: 6px 12px;
+                border-radius: 4px;
+                font-size: 12px;
+            }
+            QPushButton:hover:enabled {
+                background-color: #007acc;
+            }
+            QPushButton:disabled {
+                background-color: #3d3d3d;
+                color: #666666;
+            }
+        """)
+        self.page_layout.addWidget(self.next_btn)
+        
+        self.page_layout.addStretch()
+        layout.addLayout(self.page_layout)
+        
+        # 초기에는 페이징 UI 숨김
+        self._set_paging_visible(False)
+    
+    def _set_paging_visible(self, visible: bool):
+        """페이징 UI 표시/숨김"""
+        self.prev_btn.setVisible(visible)
+        self.page_label.setVisible(visible)
+        self.next_btn.setVisible(visible)
+    
+    def _on_prev_page(self):
+        """이전 페이지"""
+        if self._current_page > 0:
+            self._current_page -= 1
+            self._display_current_page()
+    
+    def _on_next_page(self):
+        """다음 페이지"""
+        if self._current_page < self._total_pages - 1:
+            self._current_page += 1
+            self._display_current_page()
+    
+    def _display_current_page(self):
+        """현재 페이지의 결과 표시"""
+        self.list_widget.clear()
+        
+        # 페이지 범위 계산
+        start = self._current_page * self._page_size
+        end = start + self._page_size
+        
+        # 정렬 적용
+        sorted_results = self._sort_list(self._search_results)
+        page_results = sorted_results[start:end]
+        
+        for result in page_results:
+            item = self._create_search_result_item(result)
+            self.list_widget.addItem(item)
+        
+        # 버튼 상태 업데이트
+        self.prev_btn.setEnabled(self._current_page > 0)
+        self.next_btn.setEnabled(self._current_page < self._total_pages - 1)
+        self.page_label.setText(f"페이지 {self._current_page + 1}/{self._total_pages}")
     
     def _on_search(self):
         """검색 버튼 클릭"""
@@ -466,17 +576,30 @@ class FileListWidget(QWidget):
         self.count_label.setText(f"파일 {len(files)}개")
     
     def _display_search_results(self, results: list):
-        """검색 결과 표시"""
+        """검색 결과 표시 (페이징 적용)"""
         self.list_widget.clear()
         
-        # 정렬 적용
-        sorted_results = self._sort_list(results)
+        total_count = len(results)
         
-        for result in sorted_results:
-            item = self._create_search_result_item(result)
-            self.list_widget.addItem(item)
-        
-        self.count_label.setText(f"검색 결과 {len(results)}개")
+        # 페이징 필요 여부 확인
+        if total_count > self._page_size:
+            # 페이징 활성화
+            self._current_page = 0
+            self._total_pages = (total_count + self._page_size - 1) // self._page_size
+            self._set_paging_visible(True)
+            self._display_current_page()
+            self.count_label.setText(f"검색 결과 {total_count}개 (페이지 {self._current_page + 1}/{self._total_pages})")
+        else:
+            # 페이징 비활성화 - 전체 표시
+            self._set_paging_visible(False)
+            
+            sorted_results = self._sort_list(results)
+            
+            for result in sorted_results:
+                item = self._create_search_result_item(result)
+                self.list_widget.addItem(item)
+            
+            self.count_label.setText(f"검색 결과 {total_count}개")
     
     def _create_file_item(self, file_info: FileInfo) -> QListWidgetItem:
         """일반 파일 아이템 생성"""

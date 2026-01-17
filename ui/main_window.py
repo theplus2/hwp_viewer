@@ -101,14 +101,14 @@ class MainWindow(QMainWindow):
                 f"동기화 완료 - 삭제: {deleted}, 업데이트: {updated}", 5000
             )
             # 파일 목록 갱신
-            if hasattr(self, 'folder_tree') and self.folder_tree.tree.currentItem():
-                self.folder_tree._on_item_clicked(self.folder_tree.tree.currentItem(), 0)
+            if hasattr(self, 'folder_tree') and self.folder_tree.tree_widget.currentItem():
+                self.folder_tree._on_item_clicked(self.folder_tree.tree_widget.currentItem(), 0)
         else:
             self.status_bar.showMessage("준비됨", 3000)
     
     def _setup_ui(self):
         """UI 초기화"""
-        self.setWindowTitle("HWP Instant Viewer v2.3")
+        self.setWindowTitle("HWP Instant Viewer v2.3.2")
         self.setMinimumSize(1200, 700)
         self.resize(1400, 800)
         
@@ -500,7 +500,7 @@ class MainWindow(QMainWindow):
         """정보 다이얼로그"""
         QMessageBox.about(
             self, "HWP Instant Viewer",
-            "HWP Instant Viewer v2.3\n\n"
+            "HWP Instant Viewer v2.3.2\n\n"
             "HWP 파일을 빠르게 탐색하고 검색하는 도구\n\n"
             "기능:\n"
             "• 폴더 트리 탐색\n"

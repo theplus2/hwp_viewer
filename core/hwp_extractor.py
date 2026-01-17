@@ -76,6 +76,10 @@ def _extract_text_with_olefile(file_path: str) -> str:
     
     text_parts = []
     
+    # OLE2 형식인지 먼저 확인 (HWPX는 ZIP 형식이므로 제외)
+    if not olefile.isOleFile(file_path):
+        return ""
+    
     try:
         ole = olefile.OleFileIO(file_path)
         
