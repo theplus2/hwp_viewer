@@ -337,7 +337,7 @@ class FileListWidget(QWidget):
         
         try:
             if self._current_sort == 'date':
-                # 날짜순 (최신 먼저)
+                # 날짜순 (최신 먼저 = 내림차순)
                 def get_mtime(item):
                     try:
                         if hasattr(item, 'file_info'):  # SearchResult
@@ -347,9 +347,9 @@ class FileListWidget(QWidget):
                     except:
                         pass
                     return 0
-                return sorted(items, key=get_mtime, reverse=True)
+                return sorted(items, key=get_mtime, reverse=True)  # 내림차순 (최신 먼저)
             else:
-                # 가나다순
+                # 가나다순 (오름차순 = ㄱ→ㅎ, A→Z)
                 def get_name(item):
                     try:
                         if hasattr(item, 'file_info'):  # SearchResult
@@ -359,7 +359,7 @@ class FileListWidget(QWidget):
                     except:
                         pass
                     return ""
-                return sorted(items, key=get_name)
+                return sorted(items, key=get_name)  # 오름차순
         except Exception:
             return items
     

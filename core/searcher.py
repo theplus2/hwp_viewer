@@ -58,29 +58,52 @@ class HWPSearcher:
         
         self.last_query = query
         results = []
+        query_lower = query.lower()  # 한 번만 계산
         
         # FTS5 검색 수행
         fts_results = self._indexer.search_fts(query, folder_path)
         
         for file_info, match_count in fts_results:
-            # 파일명/본문 매칭 여부 판단
-            query_lower = query.lower()
+            # FTS가 이미 매칭을 확인했으므로 간단한 확인만
             matched_in_filename = query_lower in file_info.file_name.lower()
-            matched_in_content = query_lower in file_info.content.lower() if file_info.content else False
             
-            # 미리보기 생성
-            preview = self._generate_preview(file_info.content, query, re.IGNORECASE)
+            # 미리보기 생성 (간소화 - 빠른 문자열 검색)
+            preview = self._generate_preview_fast(file_info.content, query_lower)
             
             result = SearchResult(
                 file_info=file_info,
                 match_count=match_count,
                 matched_in_filename=matched_in_filename,
-                matched_in_content=matched_in_content or not matched_in_filename,
+                matched_in_content=not matched_in_filename,  # FTS가 매칭했으므로 본문에 있음
                 preview=preview
             )
             results.append(result)
         
         return results
+    
+    def _generate_preview_fast(self, content: str, query_lower: str, context_chars: int = 50) -> str:
+        """빠른 미리보기 생성 (정규식 없이)"""
+        if not content:
+            return ""
+        
+        content_lower = content.lower()
+        pos = content_lower.find(query_lower)
+        
+        if pos == -1:
+            # 매칭 없으면 첫 100자 반환
+            return content[:100].replace('\n', ' ').strip() + ("..." if len(content) > 100 else "")
+        
+        start = max(0, pos - context_chars)
+        end = min(len(content), pos + len(query_lower) + context_chars)
+        
+        preview = content[start:end]
+        
+        if start > 0:
+            preview = "..." + preview
+        if end < len(content):
+            preview = preview + "..."
+        
+        return preview.replace('\n', ' ').strip()
     
     def search(
         self, 
