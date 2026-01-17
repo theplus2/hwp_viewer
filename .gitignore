@@ -15,6 +15,7 @@ venv/
 # Distribution
 build/
 dist/
+*.spec
 *.egg-info/
 
 # Local files
@@ -24,6 +25,8 @@ dist/
 
 # Test/Debug files
 debug_output.html
+tests/
+test_output/
 verify_*.py
 test_*.py
 reproduce_*.py

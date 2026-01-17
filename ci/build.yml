@@ -1,0 +1,31 @@
+name: Build & Release
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m venv .venv
+          .venv\Scripts\activate
+          pip install -r requirements.txt
+          pip install pyinstaller
+      - name: Build exe
+        run: |
+          .venv\Scripts\activate
+          python -m PyInstaller --onefile --windowed --icon assets/icon.ico --name HWPViewer --distpath dist --workpath build main.py
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: windows-exe
+          path: dist/HWPViewer.exe
