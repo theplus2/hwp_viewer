@@ -65,7 +65,7 @@ class MainWindow(QMainWindow):
     
     def _setup_ui(self):
         """UI 초기화"""
-        self.setWindowTitle("HWP Instant Viewer v2.0")
+        self.setWindowTitle("HWP Instant Viewer v2.2")
         self.setMinimumSize(1200, 700)
         self.resize(1400, 800)
         
