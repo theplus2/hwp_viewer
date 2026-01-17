@@ -39,6 +39,22 @@ class IndexWorker(QThread):
         self.finished.emit(count)
 
 
+class SyncWorker(QThread):
+    """백그라운드 동기화 스레드 - 시작 시 자동 실행"""
+    finished = pyqtSignal(int, int)  # deleted_count, updated_count
+    status = pyqtSignal(str)  # 현재 작업 상태
+    
+    def __init__(self, indexer: FolderIndexer):
+        super().__init__()
+        self.indexer = indexer
+    
+    def run(self):
+        result = self.indexer.sync_all_folders(
+            progress_callback=lambda f: self.status.emit(f)
+        )
+        self.finished.emit(result['total_deleted'], result['total_updated'])
+
+
 class MainWindow(QMainWindow):
     """
     메인 윈도우 - 3-패널 레이아웃
@@ -62,10 +78,37 @@ class MainWindow(QMainWindow):
         self._setup_menu()
         self._connect_signals()
         self._load_saved_folders()
+        
+        # 시작 시 자동 동기화 (백그라운드)
+        self._start_auto_sync()
+    
+    def _start_auto_sync(self):
+        """시작 시 백그라운드 동기화 실행"""
+        if not self.indexer.indexed_folders:
+            return
+        
+        self.sync_worker = SyncWorker(self.indexer)
+        self.sync_worker.status.connect(
+            lambda f: self.status_bar.showMessage(f"동기화 중: {f}")
+        )
+        self.sync_worker.finished.connect(self._on_sync_finished)
+        self.sync_worker.start()
+    
+    def _on_sync_finished(self, deleted: int, updated: int):
+        """동기화 완료 처리"""
+        if deleted > 0 or updated > 0:
+            self.status_bar.showMessage(
+                f"동기화 완료 - 삭제: {deleted}, 업데이트: {updated}", 5000
+            )
+            # 파일 목록 갱신
+            if hasattr(self, 'folder_tree') and self.folder_tree.tree.currentItem():
+                self.folder_tree._on_item_clicked(self.folder_tree.tree.currentItem(), 0)
+        else:
+            self.status_bar.showMessage("준비됨", 3000)
     
     def _setup_ui(self):
         """UI 초기화"""
-        self.setWindowTitle("HWP Instant Viewer v2.2.7")
+        self.setWindowTitle("HWP Instant Viewer v2.3")
         self.setMinimumSize(1200, 700)
         self.resize(1400, 800)
         
@@ -457,7 +500,7 @@ class MainWindow(QMainWindow):
         """정보 다이얼로그"""
         QMessageBox.about(
             self, "HWP Instant Viewer",
-            "HWP Instant Viewer v2.2.7\n\n"
+            "HWP Instant Viewer v2.3\n\n"
             "HWP 파일을 빠르게 탐색하고 검색하는 도구\n\n"
             "기능:\n"
             "• 폴더 트리 탐색\n"

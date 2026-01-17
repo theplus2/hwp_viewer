@@ -520,3 +520,86 @@ class DatabaseManager:
         if hasattr(self._local, 'connection') and self._local.connection:
             self._local.connection.close()
             self._local.connection = None
+    
+    # ==================== 동기화 관련 ====================
+    
+    def delete_file(self, file_path: str) -> bool:
+        """단일 파일 삭제"""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM files WHERE file_path = ?", (file_path,))
+                conn.commit()
+                return cursor.rowcount > 0
+        except Exception:
+            return False
+    
+    def delete_files_batch(self, file_paths: List[str]) -> int:
+        """배치 단위 파일 삭제"""
+        if not file_paths:
+            return 0
+        
+        deleted = 0
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                for fp in file_paths:
+                    cursor.execute("DELETE FROM files WHERE file_path = ?", (fp,))
+                    deleted += cursor.rowcount
+                conn.commit()
+        except Exception:
+            pass
+        return deleted
+    
+    def get_all_file_paths_in_folder(self, folder_path: str) -> List[str]:
+        """폴더 내 모든 파일 경로 목록 반환 (동기화용)"""
+        folder_path = os.path.abspath(folder_path)
+        folder_path_normalized = folder_path.replace('\\', '/')
+        results = []
+        
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                folder_prefix = folder_path_normalized + '/'
+                cursor.execute("""
+                    SELECT file_path FROM files 
+                    WHERE REPLACE(folder_path, '\\', '/') LIKE ? 
+                       OR REPLACE(folder_path, '\\', '/') = ?
+                """, (folder_prefix + '%', folder_path_normalized))
+                results = [row['file_path'] for row in cursor.fetchall()]
+        except Exception:
+            pass
+        
+        return results
+    
+    def sync_folder(self, folder_path: str, current_files: List[str]) -> dict:
+        """
+        폴더 동기화 - DB와 실제 파일 시스템 비교
+        
+        Args:
+            folder_path: 동기화할 폴더 경로
+            current_files: 현재 파일 시스템에 존재하는 파일 경로 목록
+            
+        Returns:
+            {'added': int, 'deleted': int, 'updated': int}
+        """
+        folder_path = os.path.abspath(folder_path)
+        current_set = set(current_files)
+        
+        # DB에 있는 파일 목록
+        db_files = self.get_all_file_paths_in_folder(folder_path)
+        db_set = set(db_files)
+        
+        # 삭제된 파일 (DB에는 있지만 파일 시스템에는 없음)
+        deleted_files = db_set - current_set
+        deleted_count = self.delete_files_batch(list(deleted_files))
+        
+        # 새로 추가되거나 업데이트가 필요한 파일
+        # (실제 업데이트는 indexer에서 modified_time 비교 후 수행)
+        new_files = current_set - db_set
+        
+        return {
+            'added': len(new_files),
+            'deleted': deleted_count,
+            'to_check': list(current_set)  # 수정 여부 확인 필요한 파일들
+        }

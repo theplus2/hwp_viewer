@@ -49,7 +49,6 @@ def extract_text(file_path: str) -> str:
         pass
     
     # hwp5txt로 추출한 텍스트가 너무 짧으면 xmlmodel로 표 내용도 추출
-    # (표만 있는 문서의 경우 hwp5txt는 거의 빈 텍스트를 반환함)
     if len(text) < 50:
         try:
             text_with_tables = _extract_text_with_tables(file_path)
@@ -58,7 +57,95 @@ def extract_text(file_path: str) -> str:
         except Exception:
             pass
     
+    # 여전히 텍스트가 부족하면 olefile 폴백 사용
+    if len(text) < 50:
+        try:
+            text_olefile = _extract_text_with_olefile(file_path)
+            if len(text_olefile) > len(text):
+                text = text_olefile
+        except Exception:
+            pass
+    
     return text
+
+
+def _extract_text_with_olefile(file_path: str) -> str:
+    """olefile을 사용하여 HWP에서 텍스트 추출 (PyInstaller 호환 폴백)"""
+    import olefile
+    import zlib
+    
+    text_parts = []
+    
+    try:
+        ole = olefile.OleFileIO(file_path)
+        
+        # BodyText 스트림에서 텍스트 추출
+        for stream_name in ole.listdir():
+            stream_path = '/'.join(stream_name)
+            
+            # BodyText/Section* 스트림 찾기
+            if 'BodyText' in stream_path and 'Section' in stream_path:
+                try:
+                    data = ole.openstream(stream_name).read()
+                    
+                    # 압축된 데이터인 경우 해제
+                    try:
+                        decompressed = zlib.decompress(data, -15)
+                        data = decompressed
+                    except:
+                        pass
+                    
+                    # 유니코드 텍스트 추출 (2바이트씩)
+                    # HWP 내부 형식에서 텍스트 청크 찾기
+                    extracted = _parse_hwp_section_text(data)
+                    if extracted:
+                        text_parts.append(extracted)
+                except Exception:
+                    pass
+        
+        ole.close()
+    except Exception:
+        pass
+    
+    return '\n'.join(text_parts).strip()
+
+
+def _parse_hwp_section_text(data: bytes) -> str:
+    """HWP Section 바이너리 데이터에서 텍스트 추출"""
+    text_chars = []
+    i = 0
+    
+    while i < len(data) - 1:
+        # 2바이트씩 읽어 유니코드 문자로 해석
+        char_code = data[i] | (data[i+1] << 8)
+        
+        # 제어 문자 및 특수 코드 처리
+        if char_code == 0:
+            # 널 문자 - 무시
+            pass
+        elif char_code == 10 or char_code == 13:
+            # 줄바꿈
+            text_chars.append('\n')
+        elif char_code < 32:
+            # 기타 제어 문자 - 공백으로
+            if char_code == 9:  # 탭
+                text_chars.append(' ')
+        elif 32 <= char_code < 0xD800 or 0xE000 <= char_code < 0xFFFE:
+            # 유효한 유니코드 범위
+            try:
+                text_chars.append(chr(char_code))
+            except:
+                pass
+        
+        i += 2
+    
+    # 연속된 공백/줄바꿈 정리
+    text = ''.join(text_chars)
+    import re
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    text = re.sub(r' {2,}', ' ', text)
+    
+    return text.strip()
 
 
 def extract_text_from_hwpx(file_path: str) -> str:

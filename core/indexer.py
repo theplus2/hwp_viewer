@@ -341,3 +341,84 @@ class FolderIndexer:
     def reset_database(self):
         """데이터베이스 초기화"""
         self._db.reset_database()
+    
+    def sync_all_folders(self, progress_callback=None) -> dict:
+        """
+        모든 폴더 동기화 - 삭제된 파일 제거, 수정된 파일 업데이트
+        
+        Returns:
+            {'total_deleted': int, 'total_updated': int}
+        """
+        total_deleted = 0
+        total_updated = 0
+        
+        folders = self.indexed_folders
+        
+        for folder in folders:
+            if not os.path.isdir(folder):
+                continue
+            
+            # 현재 파일 시스템의 파일 목록
+            current_files = self.scan_folder_fast(folder)
+            
+            # DB와 동기화 (삭제된 파일 제거)
+            sync_result = self._db.sync_folder(folder, current_files)
+            total_deleted += sync_result['deleted']
+            
+            # 수정된 파일 업데이트 (modified_time 비교)
+            files_to_update = []
+            for file_path in sync_result['to_check']:
+                try:
+                    stat = os.stat(file_path)
+                    existing_mtime = self._db.get_file_modified_time(file_path)
+                    
+                    # 새 파일이거나 수정된 파일
+                    if existing_mtime is None or existing_mtime != stat.st_mtime:
+                        files_to_update.append(file_path)
+                except Exception:
+                    pass
+            
+            # 업데이트 필요한 파일들 재색인
+            if files_to_update:
+                for file_path in files_to_update:
+                    try:
+                        file_name = os.path.basename(file_path)
+                        folder_path_part = os.path.dirname(file_path)
+                        folder_name = os.path.basename(folder_path_part)
+                        ext = os.path.splitext(file_name)[1].lower()
+                        stat = os.stat(file_path)
+                        
+                        # 기존 레코드 삭제 후 새로 추가 (FTS 트리거 문제 방지)
+                        self._db.delete_file(file_path)
+                        
+                        # 텍스트 추출
+                        content = ""
+                        try:
+                            from .hwp_extractor import extract_text
+                            content = extract_text(file_path)
+                        except:
+                            pass
+                        
+                        file_info = FileInfo(
+                            file_path=file_path,
+                            file_name=file_name,
+                            folder_path=folder_path_part,
+                            folder_name=folder_name,
+                            extension=ext,
+                            size=stat.st_size,
+                            modified_time=stat.st_mtime,
+                            content=content,
+                            indexed=True
+                        )
+                        self._db.add_file(file_info)
+                        total_updated += 1
+                        
+                        if progress_callback:
+                            progress_callback(file_name)
+                    except Exception:
+                        pass
+        
+        return {
+            'total_deleted': total_deleted,
+            'total_updated': total_updated
+        }
