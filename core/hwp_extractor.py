@@ -143,75 +143,87 @@ def extract_html_from_hwpx(file_path: str) -> Tuple[str, List[Dict]]:
 
 
 def _extract_html_from_hwpx_section(xml_content: str) -> str:
-    """HWPX section XML에서 HTML 추출"""
+    """HWPX section XML에서 HTML 추출 (구조적 파싱)"""
     import xml.etree.ElementTree as ET
-    
-    html_parts = []
-    current_paragraph = []
-    in_table = False
-    table_rows = []
-    current_row = []
-    current_cell = []
     
     try:
         root = ET.fromstring(xml_content)
+        return _parse_nodes(root)
+    except Exception as e:
+        print(f"HWPX Parsing Error: {e}")
+        return ""
+
+
+def _get_tag(elem) -> str:
+    """XML 태그 이름에서 네임스페이스 제거"""
+    return elem.tag.split('}')[-1] if '}' in elem.tag else elem.tag
+
+
+def _parse_nodes(elem) -> str:
+    """XML 노드 순회하며 HTML 생성 (재귀)"""
+    parts = []
+    if elem is None:
+        return ""
+    
+    for child in elem:
+        tag = _get_tag(child)
         
-        for elem in root.iter():
-            tag = elem.tag.split('}')[-1] if '}' in elem.tag else elem.tag
+        if tag == 'p':
+            parts.append(_parse_paragraph(child))
+        elif tag == 'tbl':
+            parts.append(_parse_table(child))
+        elif tag == 't':
+            # 텍스트 노드
+            text = child.text or ''
+            parts.append(html_lib.escape(text))
+        else:
+            # run, sec, subList, tc 등 컨테이너 -> 재귀 호출
+            parts.append(_parse_nodes(child))
             
-            if tag == 't' and elem.text:
-                if in_table:
-                    current_cell.append(elem.text)
-                else:
-                    current_paragraph.append(elem.text)
-            
-            elif tag == 'p':
-                if current_paragraph and not in_table:
-                    text = ''.join(current_paragraph).strip()
-                    if text:
-                        escaped = html_lib.escape(text)
-                        html_parts.append(f"<p>{escaped}</p>")
-                    current_paragraph = []
-            
-            elif tag == 'tbl':
-                in_table = True
-                table_rows = []
-            
-            elif tag == 'tr':
-                current_row = []
-            
-            elif tag == 'tc':
-                current_cell = []
-            
-            # 테이블 셀 종료 (간단한 휴리스틱)
-            if tag in ('tc',) and current_cell:
-                current_row.append(''.join(current_cell))
-                current_cell = []
-            
-            if tag in ('tr',) and current_row:
-                table_rows.append(current_row)
-                current_row = []
-            
-            if tag in ('tbl',) and table_rows:
-                html_parts.append(_build_table_html_simple(table_rows))
-                in_table = False
-                table_rows = []
-                
-    except Exception:
-        pass
+    return ''.join(parts)
+
+
+def _parse_paragraph(p_elem) -> str:
+    """문단(p) 파싱"""
+    content = _parse_nodes(p_elem)
     
-    # 마지막 단락 처리
-    if current_paragraph:
-        text = ''.join(current_paragraph).strip()
-        if text:
-            escaped = html_lib.escape(text)
-            html_parts.append(f"<p>{escaped}</p>")
+    if not content.strip():
+        return ""
+        
+    # 내용 중에 테이블이 있으면 p 태그로 감싸지 않는 것이 안전할 수 있음
+    # (하지만 뷰어 호환성을 위해 스타일 조정 등으로 처리 가능, 여기서는 단순화)
+    if '<table' in content:
+        return content
+        
+    return f"<p>{content}</p>"
+
+
+def _parse_table(tbl_elem) -> str:
+    """표(tbl) 파싱"""
+    rows_html = []
     
-    return '\n'.join(html_parts)
+    # 자식 노드 중 tr 찾기
+    for child in tbl_elem:
+        if _get_tag(child) == 'tr':
+            cells_html = []
+            for tc in child:
+                if _get_tag(tc) == 'tc':
+                    # 셀(tc) 내용 재귀 파싱
+                    # tc 안에 subList > p 구조가 일반적임
+                    cell_content = _parse_nodes(tc)
+                    cells_html.append(f'<td>{cell_content}</td>')
+            
+            if cells_html:
+                rows_html.append('<tr>' + ''.join(cells_html) + '</tr>')
+    
+    if not rows_html:
+        return ""
+        
+    return '<table border="1" style="border-collapse: collapse; width: 100%; margin: 10px 0;">' + ''.join(rows_html) + '</table>'
 
 
 def _build_table_html_simple(rows: list) -> str:
-    """간단한 테이블 HTML 생성"""
+    """(Deprecated) 간단한 테이블 HTML 생성 - 하위 호환성 유지용"""
     html = ['<table>']
     for row in rows:
         html.append('<tr>')
