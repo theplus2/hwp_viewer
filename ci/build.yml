@@ -14,33 +14,45 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v3
+      
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
+          
       - name: Install dependencies
         run: |
           python -m venv .venv
-          .venv\Scripts\activate
-          pip install -r requirements.txt
-          pip install pyinstaller
+          .\.venv\Scripts\python -m pip install --upgrade pip
+          .\.venv\Scripts\python -m pip install -r requirements.txt
+          .\.venv\Scripts\python -m pip install pyinstaller
+          
       - name: Build exe
         run: |
-          .venv\Scripts\activate
-          python -m PyInstaller --onefile --windowed --icon assets/icon.ico --name HWPViewer --distpath dist --workpath build main.py
+          .\.venv\Scripts\python -m PyInstaller --onefile --windowed --icon assets/icon.ico --name HWPViewer --distpath dist --workpath build main.py
+          
+      - name: Check Build Result
+        shell: pwsh
+        run: |
+          if (Test-Path "dist/HWPViewer.exe") {
+            Write-Host "Build Successful: dist/HWPViewer.exe exists."
+          } else {
+            Write-Error "Build Failed: dist/HWPViewer.exe not found."
+            exit 1
+          }
+          
       - name: Upload artifact
         uses: actions/upload-artifact@v3
         with:
           name: windows-exe
           path: dist/HWPViewer.exe
+          
       - name: Create Release
-        if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/master'
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v1
         with:
           files: dist/HWPViewer.exe
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'latest' }}
-          name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'Latest Stable' }}
           draft: false
-          prerelease: ${{ github.ref == 'refs/heads/master' }}
+          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
